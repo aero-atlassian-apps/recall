@@ -16,19 +16,24 @@ interface TranscriptDisplayProps {
 }
 
 export function TranscriptDisplay({ messages }: TranscriptDisplayProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   return (
-    <div className="bg-neutral-50 p-8 space-y-4 max-w-4xl mx-auto">
+    <ol
+      className="bg-neutral-50 p-8 space-y-4 max-w-4xl mx-auto list-none"
+      aria-label="Conversation transcript"
+      aria-live="polite"
+      aria-relevant="additions"
+    >
       {messages.map((message) => (
         <MessageBubble key={message.id} message={message} />
       ))}
-      <div ref={bottomRef} />
-    </div>
+      <li ref={bottomRef} className="h-px w-px opacity-0" aria-hidden="true" />
+    </ol>
   );
 }
 
@@ -36,15 +41,19 @@ function MessageBubble({ message }: { message: Message }) {
   const isAgent = message.speaker === 'agent';
 
   return (
-    <div className={cn(
+    <li className={cn(
       "flex items-start gap-3",
       !isAgent && "flex-row-reverse"
     )}>
       {/* Avatar */}
-      <div className={cn(
-        "w-10 h-10 rounded-full flex items-center justify-center text-xl flex-shrink-0",
-        isAgent ? "bg-neutral-200" : "bg-primary-500"
-      )}>
+      <div
+        className={cn(
+          "w-10 h-10 rounded-full flex items-center justify-center text-xl flex-shrink-0",
+          isAgent ? "bg-neutral-200" : "bg-primary-500"
+        )}
+        role="img"
+        aria-label={isAgent ? "Agent avatar" : "User avatar"}
+      >
         {isAgent ? "🎙️" : "👤"}
       </div>
 
@@ -57,6 +66,6 @@ function MessageBubble({ message }: { message: Message }) {
       )}>
         <p className="text-base leading-relaxed">{message.text}</p>
       </div>
-    </div>
+    </li>
   );
 }
