@@ -1,55 +1,63 @@
 # 01. Executive & Product Vision
 
-## 1. Mission & Problem Statement
+## 1.1 Product Mission & Problem Statement
 
-### Mission
-To preserve the legacy of seniors through intelligent, active conversation, turning ephemeral memories into enduring, accessible family artifacts using advanced voice AI.
+**Problem Statement:**
+Every day, a generation of stories, wisdom, and family history is lost as seniors pass away without documenting their lives. Traditional methods of biography (writing, hiring a ghostwriter) are time-consuming, expensive, or physically difficult for seniors. Families struggle to bridge the generational gap and preserve their legacy in a meaningful, accessible format.
 
-### Problem Statement
-**Primary Problem:** Cognitive decline and memory loss (Alzheimer's/Dementia) rob seniors of their personal history and identity. Reminiscence therapy is clinically proven to help but is expensive and inaccessible.
-**Secondary Problem:** Families lose priceless oral history when elders pass away. Passive recording tools have low engagement and completion rates.
+**Mission:**
+To democratize the preservation of human legacy by creating "Recall," an empathetic, AI-powered active living biographer. We aim to capture, structure, and immortalize the life stories of seniors through natural, voice-first conversations anchored by visual memories.
 
-### Core Philosophy
-**Active Living Biographer:** Recall is not a passive recorder; it is an active conversationalist ("The Director") that guides, stimulates, and structures memories.
-**Visual Memory Anchoring:** We use the "Proustian Trigger" – using visual stimuli (photos) to unlock deep, specific conversational memories.
+---
 
-## 2. Target Users & Personas
+## 1.2 Target Users & Personas
 
-### Primary User: "Arthur" (The Senior)
-- **Age:** 75-90
-- **Tech Proficiency:** Low to Moderate. Comfortable with voice, less with complex UIs.
-- **Motivation:** Wants to be remembered, fears being a burden, enjoys conversation.
-- **Key Need:** Simplicity, patience, natural voice interaction (no "Hey Siri" commands).
+### **Primary User: "The Storyteller" (Senior)**
+- **Demographics:** Age 70+, retired, varying levels of tech-literacy.
+- **Goals:** Share their life story, feel heard/valued, leave a legacy for grandkids.
+- **Pain Points:** Typing is difficult; memory can be foggy; "blank page syndrome" (don't know where to start).
+- **Behavior:** Prefers talking over typing; appreciates patience and prompting.
 
-### Secondary User: "Sarah" (The Family Steward)
-- **Age:** 45-60
-- **Tech Proficiency:** High.
-- **Motivation:** Guilt over not spending enough time, desire to preserve family history for children.
-- **Key Need:** Visibility into Arthur's well-being, tangible artifacts (books/audio), safety alerts.
+### **Secondary User: "The Custodian" (Family Member)**
+- **Demographics:** Age 30-60, child or grandchild of the Storyteller.
+- **Goals:** Preserve family history, better understand their parents, create a keepsake.
+- **Pain Points:** Guilt over not calling enough; lack of time to interview parents personally.
+- **Behavior:** Sets up the account; consumes the output (Chapters, Storybooks); manages subscription.
 
-## 3. Value Proposition
+---
 
-1.  **Zero-Friction Capture:** No typing, no forms. Just talking to a compassionate voice.
-2.  **Therapeutic Benefit:** Validates the senior's life experience through active listening and intelligent follow-up questions.
-3.  **Automated Artifacts:** Turns raw audio into structured, beautiful "Storybook Chapters" automatically.
-4.  **Safety & Peace of Mind:** Passive monitoring for cognitive decline or crisis keywords during conversations.
+## 1.3 Value Proposition
 
-## 4. Success Metrics (KPIs)
+1.  **Zero-Friction Capture:** No typing required. The interface is voice-first, designed for accessibility.
+2.  **Proustian Triggers:** "Visual Memory Anchoring" uses personal photos to unlock deep, specific memories that text prompts miss.
+3.  **Active Listening:** The AI "Director" doesn't just record; it asks follow-up questions, detects emotion, and steers the conversation like a professional interviewer.
+4.  **Structured Output:** Raw audio is transformed into polished, chronological "Chapters" and "Storybooks" suitable for printing or sharing.
 
--   **Engagement:** Average Session Duration (>15 mins).
--   **Retention:** Weekly Active Seniors (>3 sessions/week).
--   **Artifact Value:** Chapter Completion Rate (Sessions successfully converted to Chapters).
--   **Family Satisfaction:** Open Rate of "New Chapter" emails.
+---
 
-## 5. Non-Goals & Exclusions (MVP)
+## 1.4 Success Metrics (KPIs & OKRs)
 
--   **Clinical Diagnosis:** Recall is a companion, not a doctor. No medical diagnoses will be provided.
--   **Native Mobile Apps:** MVP is a responsive Web Application (PWA ready).
--   **Real-time Video:** Voice-only communication (with image upload capabilities).
--   **Complex ACLs:** Single family account structure (One Senior linked to multiple Family members).
+| Metric Category | KPI | Target (MVP) |
+| :--- | :--- | :--- |
+| **Engagement** | Average Session Duration | > 15 minutes |
+| **Retention** | Weekly Active Seniors | > 60% |
+| **Output Quality** | Chapters Generated / Session | > 0.8 |
+| **Growth** | Family Member Invites | > 2 per Senior |
+| **Technical** | Voice Latency (P95) | < 2000ms |
 
-## 6. Assumptions & Constraints
+---
 
--   **Connectivity:** Senior must have stable internet (WiFi/4G).
--   **Language:** English only for MVP.
--   **Device:** Accessible via standard web browser (Chrome/Safari/Edge) on Tablet or Desktop.
+## 1.5 Non-Goals & Exclusions
+
+-   **Not a Medical Device:** Recall is not a diagnostic tool for dementia or Alzheimer's, though it is dementia-friendly.
+-   **Not a Social Network:** There is no public feed. Stories are private by default, shared only with invited family.
+-   **Not a General Assistant:** Recall does not set timers, check weather, or order groceries. It is strictly a biographer.
+
+---
+
+## 1.6 Assumptions & Constraints
+
+-   **Connectivity:** Users have stable internet (WiFi/4G) sufficient for audio streaming.
+-   **Hardware:** Users have a device with a working microphone and speaker (smartphone or tablet).
+-   **Language:** MVP is English-only.
+-   **Privacy:** Users own their data. We do not train public models on private stories without explicit consent.
