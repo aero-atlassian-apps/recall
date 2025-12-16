@@ -11,6 +11,7 @@ import { AoTChapterGeneratorAdapter } from '../adapters/ai/AoTChapterGeneratorAd
 import { MockAIService } from '../adapters/mocks/MockAIService';
 import { MockVectorStore } from '../adapters/mocks/MockVectorStore';
 import { MockEmailService } from '../adapters/mocks/MockEmailService';
+import { MockChapterGeneratorAdapter } from '../adapters/mocks/MockChapterGeneratorAdapter';
 
 import { CreateUserUseCase } from '../../core/application/use-cases/CreateUserUseCase';
 import { StartSessionUseCase } from '../../core/application/use-cases/StartSessionUseCase';
@@ -30,13 +31,7 @@ export const jobRepository = new DrizzleJobRepository();
 export const aiService = useMocks ? new MockAIService() : new CombinedAIService();
 export const vectorStore = useMocks ? new MockVectorStore() : new PineconeStore(sessionRepository);
 export const emailService = useMocks ? new MockEmailService() : new ResendEmailService();
-export const chapterGenerator = new AoTChapterGeneratorAdapter(); // Chapter generator might need mocking too if it uses external APIs heavily, but keeping as is for now or could reuse MockAIService if interfaces align. Assuming AoT uses AI service internally or is self-contained logic.
-// Checking AoTChapterGeneratorAdapter usage: it's used in GenerateChapterUseCase.
-// If AoTChapterGeneratorAdapter calls VertexAI directly, it should also be mocked.
-// However, the prompt asks to mock "Integrations". If AoT is internal logic calling AI service, we might need to verify.
-// For now, let's assume AoTChapterGeneratorAdapter is the integration point or uses the AI service.
-// Actually, if AoTChapterGeneratorAdapter calls an LLM, we should mock it too or inject the mock AI service into it if it supports it.
-// Given strict instructions, let's stick to mocking the direct external dependencies identified: AI, Vector, Email.
+export const chapterGenerator = useMocks ? new MockChapterGeneratorAdapter() : new AoTChapterGeneratorAdapter();
 
 // Use Cases
 export const createUserUseCase = new CreateUserUseCase(userRepository);
