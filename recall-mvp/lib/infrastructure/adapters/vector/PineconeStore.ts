@@ -1,126 +1,98 @@
-import { VectorStorePort } from '../../../core/application/ports/VectorStorePort';
-import { SessionRepository } from '../../../core/domain/repositories/SessionRepository';
+import { VectorStorePort, VectorMatch } from '../../../core/application/ports/VectorStorePort';
 import { Pinecone } from '@pinecone-database/pinecone';
-import OpenAI from 'openai';
-import { randomUUID } from 'crypto';
+import { EmbeddingPort } from '../../../core/application/ports/EmbeddingPort';
 
+/**
+ * Adapter for Pinecone Vector Database.
+ */
 export class PineconeStore implements VectorStorePort {
-  private pinecone: Pinecone;
-  private openai: OpenAI;
-  private indexName: string = 'recall-memories';
-  private isMock: boolean;
+    private pinecone: Pinecone;
+    private indexName: string = 'recall-memories';
+    private isMock: boolean;
 
-  constructor(private sessionRepository: SessionRepository) {
-    const pineconeKey = process.env.PINECONE_API_KEY;
-    const openaiKey = process.env.OPENAI_API_KEY;
+    constructor(private embeddingPort: EmbeddingPort) {
+        const pineconeKey = process.env.PINECONE_API_KEY;
 
-    if (!pineconeKey || !openaiKey) {
-        console.warn("PineconeStore: Missing API keys (PINECONE_API_KEY or OPENAI_API_KEY). Running in MOCK mode.");
-        this.isMock = true;
-    } else {
-        this.isMock = false;
-    }
-
-    this.pinecone = new Pinecone({
-      apiKey: pineconeKey || 'mock-key',
-    });
-    this.openai = new OpenAI({
-      apiKey: openaiKey || 'mock-key',
-    });
-  }
-
-  async storeConversation(sessionId: string, transcript: string, userId: string): Promise<void> {
-      await this.storeMemoryChunk(userId, sessionId, transcript, { type: 'full_conversation' });
-  }
-
-  async storeMemoryChunk(userId: string, sessionId: string, text: string, metadata: any): Promise<void> {
-    if (this.isMock) return;
-
-    try {
-        const embedding = await this.openai.embeddings.create({
-            model: 'text-embedding-3-small',
-            input: text,
-            dimensions: 1536
-        });
-
-        const index = this.pinecone.index(this.indexName);
-        await index.upsert([{
-            id: randomUUID(),
-            values: embedding.data[0].embedding,
-            metadata: {
-                userId,
-                sessionId,
-                text,
-                ...metadata,
-                timestamp: new Date().toISOString()
-            }
-        }]);
-    } catch (error) {
-        console.error("PineconeStore: Error storing memory chunk:", error);
-    }
-  }
-
-  async retrieveContext(userId: string, currentTopic?: string): Promise<any[]> {
-    const context: any[] = [];
-
-    // 1. Load recent context (Last 2 sessions) from DB (Reliable source)
-    try {
-        const recentSessions = await this.sessionRepository.findLastSessions(userId, 2);
-        for (const session of recentSessions) {
-            if (session.transcriptRaw) {
-                const transcript = typeof session.transcriptRaw === 'string'
-                    ? session.transcriptRaw
-                    : JSON.stringify(session.transcriptRaw);
-
-                context.push({
-                    type: 'recent_session',
-                    text: `Previous session on ${session.startedAt}: ${transcript.substring(0, 500)}...`,
-                    metadata: { date: session.startedAt }
-                });
-            }
+        if (!pineconeKey) {
+            console.warn("PineconeStore: Missing PINECONE_API_KEY. Running in MOCK mode.");
+            this.isMock = true;
+        } else {
+            this.isMock = false;
         }
-    } catch (e) {
-        console.error("PineconeStore: Failed to load recent sessions:", e);
-    }
 
-    if (this.isMock) {
-        // Return dummy context if mocking
-        context.push({ text: "User grew up in a small town called Oakhaven.", metadata: { date: "1950s" } });
-        return context;
-    }
-
-    try {
-        const index = this.pinecone.index(this.indexName);
-
-        let queryEmbedding: number[] = [];
-
-        // If no topic provided, use a generic query to get broad context
-        const queryText = currentTopic || "important life events summary childhood family career";
-
-        const embeddingResponse = await this.openai.embeddings.create({
-            model: 'text-embedding-3-small',
-            input: queryText
+        this.pinecone = new Pinecone({
+            apiKey: pineconeKey || 'mock-key',
         });
-        queryEmbedding = embeddingResponse.data[0].embedding;
-
-        const queryResponse = await index.query({
-            vector: queryEmbedding,
-            topK: 5,
-            filter: { userId: userId },
-            includeMetadata: true
-        });
-
-        const vectorMatches = queryResponse.matches.map(match => ({
-            text: match.metadata?.text,
-            score: match.score,
-            metadata: match.metadata
-        }));
-
-        return [...context, ...vectorMatches];
-
-    } catch (error) {
-        console.error("PineconeStore: Error retrieving context:", error);
-        return context;
     }
-  }
+
+    async upsert(id: string, vector: number[], metadata: Record<string, any>): Promise<void> {
+        if (this.isMock) return;
+
+        try {
+            const index = this.pinecone.index(this.indexName);
+            await index.upsert([{
+                id,
+                values: vector,
+                metadata: {
+                    ...metadata,
+                    timestamp: new Date().toISOString()
+                }
+            }]);
+        } catch (error) {
+            console.error('[PineconeStore] Error upserting vector:', error);
+            throw error;
+        }
+    }
+
+    async query(vector: number[], topK: number, filter?: Record<string, any>): Promise<VectorMatch[]> {
+        if (this.isMock) {
+            console.log('[PineconeStore] Mock query returning empty results');
+            return [];
+        }
+
+        try {
+            const index = this.pinecone.index(this.indexName);
+            const queryResponse = await index.query({
+                vector,
+                topK,
+                filter,
+                includeMetadata: true
+            });
+
+            return queryResponse.matches.map(match => ({
+                id: match.id,
+                score: match.score || 0,
+                metadata: (match.metadata as Record<string, any>) || {}
+            }));
+        } catch (error) {
+            console.error('[PineconeStore] Error querying vector store:', error);
+            throw error;
+        }
+    }
+
+    async delete(id: string): Promise<void> {
+        if (this.isMock) return;
+
+        try {
+            const index = this.pinecone.index(this.indexName);
+            await index.deleteOne(id);
+        } catch (error) {
+            console.error('[PineconeStore] Error deleting vector:', error);
+            throw error;
+        }
+    }
+
+    async clear(userId: string): Promise<void> {
+        if (this.isMock) return;
+
+        try {
+            const index = this.pinecone.index(this.indexName);
+            // Pinecone supports filtering on delete in newer versions/tiers
+            // Otherwise we might need to query and delete by ID
+            await index.deleteMany({ userId });
+        } catch (error) {
+            console.error('[PineconeStore] Error clearing user vectors:', error);
+            throw error;
+        }
+    }
 }
