@@ -9,8 +9,9 @@ export function normalizeSpeech(text: string): string {
 
     // Common filler words
     const fillers = [
-        /\b(um|uh|er|ah|like|you know|so yeah|basically|literally)\b/gi,
-        /\b(hmm|mhmm)\b/gi
+        /\b(um|uh|er|ah|like|you know|so yeah|basically|literally|actually|i mean|right)\b/gi,
+        /\b(hmm|mhmm|uh-huh)\b/gi,
+        /\b(sort of|kind of)\b/gi
     ];
 
     let normalized = text;
@@ -19,6 +20,10 @@ export function normalizeSpeech(text: string): string {
     fillers.forEach(pattern => {
         normalized = normalized.replace(pattern, '');
     });
+
+    // Remove repeated words (stuttering) like "I I", "the the"
+    // Case insensitive, single word repetition
+    normalized = normalized.replace(/\b(\w+)\s+\1\b/gi, '$1');
 
     // Fix punctuation and spacing
     normalized = normalized

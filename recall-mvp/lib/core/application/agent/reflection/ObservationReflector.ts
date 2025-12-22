@@ -41,16 +41,17 @@ ${observations.map((o, i) => `${i + 1}. [${o.type}] ${o.insight} (${JSON.stringi
 TASK:
 1. Have we satisfied the goal?
 2. Is the information sufficient and high quality?
-3. Should we stop or keep going?
+3. HALLUCINATION CHECK: Verify that every fact is supported by an OBSERVATION.
+4. Should we stop or keep going?
 
 OUTPUT JSON:
 {
   "goalAchieved": boolean,
   "confidence": 0.0 to 1.0,
   "summary": "What we know so far",
-  "keyFacts": ["fact1", "fact2"],
+  "keyFacts": ["Fact 1 [Step 1]", "Fact 2 [Step 3]"], // CITATIONS REQUIRED
   "outstandingQuestions": ["what is missing?"],
-  "qualityScore": 0.0 to 1.0,
+  "qualityScore": 0.0 to 1.0, // Set to 0 if hallucination detected
   "readyForUser": boolean,
   "improvementSuggestions": ["suggestion"]
 }

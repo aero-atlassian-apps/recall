@@ -4,7 +4,7 @@
  * Allows queuing responses for specific prompts or general JSON/Text returns.
  */
 
-import { LLMPort } from '../../lib/core/application/ports/LLMPort';
+import { LLMPort } from '../../../core/application/ports/LLMPort';
 
 export class MockLLM implements LLMPort {
     private jsonQueue: any[] = [];

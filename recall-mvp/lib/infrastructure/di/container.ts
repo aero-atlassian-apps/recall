@@ -26,6 +26,7 @@ import { MockAIService } from '../adapters/mocks/MockAIService';
 import { MockVectorStore } from '../adapters/mocks/MockVectorStore';
 import { MockEmailService } from '../adapters/mocks/MockEmailService';
 import { MockChapterGeneratorAdapter } from '../adapters/mocks/MockChapterGeneratorAdapter';
+import { MockLLM } from '../adapters/mocks/MockLLM';
 
 // Use Cases
 import { CreateUserUseCase } from '../../core/application/use-cases/CreateUserUseCase';
@@ -36,7 +37,9 @@ import { GenerateChapterUseCase } from '../../core/application/use-cases/Generat
 import { GetChaptersUseCase } from '../../core/application/use-cases/GetChaptersUseCase';
 import { AnalyzeSessionImageUseCase } from '../../core/application/use-cases/AnalyzeSessionImageUseCase';
 import { ExportBookUseCase } from '../../core/application/use-cases/ExportBookUseCase';
+
 import { AIServicePort } from '../../core/application/ports/AIServicePort';
+import { LLMPort } from '../../core/application/ports/LLMPort';
 
 const useMocks = process.env.USE_MOCKS === 'true';
 
@@ -57,7 +60,12 @@ export const speechProvider = isHuggingFace
     ? hfAdapter
     : new ElevenLabsAdapter(hfAdapter); // Inject fallback STT provider
 
-export const llmProvider = new GoogleVertexAdapter();
+
+
+export const llmProvider = useMocks
+    ? new MockLLM()
+    : new GoogleVertexAdapter();
+
 export const embeddingProvider = new GoogleEmbeddingAdapter(process.env.GOOGLE_PROJECT_ID || 'mock-project');
 
 // Services wired with strict DI
@@ -82,25 +90,26 @@ export const invitationScheduler = new InvitationScheduler(userRepository, invit
 
 // --- LEGACY/BRIDGE SUPPORT ---
 class AIServiceBridge implements AIServicePort {
+
     constructor(
-        private llm: GoogleVertexAdapter,
+        private llm: LLMPort,
         private speech: any, // SpeechPort
         private director: SessionGoalArchitect
-    ) {}
+    ) { }
 
     async generateQuestion(userUtterance: string, history: any[], memories: any[], imageContext?: string): Promise<{ text: string; strategy: string }> {
-         const prompt = `
+        const prompt = `
             Context: ${JSON.stringify(history)}
             Memories: ${JSON.stringify(memories)}
             Image: ${imageContext || 'None'}
             User: ${userUtterance}
             Generate follow up question JSON: { "text": "...", "strategy": "..." }
          `;
-         try {
+        try {
             return await this.llm.generateJson(prompt);
-         } catch {
-             return { text: "Tell me more.", strategy: "fallback" };
-         }
+        } catch {
+            return { text: "Tell me more.", strategy: "fallback" };
+        }
     }
 
     async generateChapterAnalysis(transcript: string): Promise<any> {
@@ -113,7 +122,7 @@ class AIServiceBridge implements AIServicePort {
     }
 
     async startVoiceConversation(userId: string, sessionId: string, userName: string, memories: any[], imageContext?: string): Promise<{ agentId: string; conversationId: string; wsUrl?: string }> {
-         throw new Error("Deprecated: Use SessionGoalArchitect directly.");
+        throw new Error("Deprecated: Use SessionGoalArchitect directly.");
     }
 
     async analyzeImage(imageBase64: string, mimeType: string): Promise<{ description: string; detectedEntities: string[]; conversationalTrigger?: string }> {

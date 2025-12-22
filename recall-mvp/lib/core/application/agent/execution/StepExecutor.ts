@@ -57,6 +57,16 @@ export class StepExecutor implements IStepExecutor {
             success = false;
         }
 
+        // 3. Validation Layer
+        if (success) {
+            const validation = this.validateResult(output, step.expectedOutputType);
+            if (!validation.valid) {
+                success = false;
+                errorMsg = `Tool output validation failed: ${validation.error}`;
+                // Keep output for debugging but mark as failed
+            }
+        }
+
         // 3. Retry Logic (Simple inline check, main retry loop typically in Orchestrator)
         // If we wanted to do internal retries here, we could. 
         // For now, we return failure and let Orchestrator decide.
@@ -77,5 +87,33 @@ export class StepExecutor implements IStepExecutor {
                 error: errorMsg
             }
         };
+    }
+
+
+    /**
+     * Validates that the tool output matches expectations.
+     * Enforces structured data policy.
+     */
+    private validateResult(output: unknown, expectedType: string): { valid: boolean; error?: string } {
+        if (output === undefined || output === null) {
+            return { valid: false, error: 'Output is null or undefined' };
+        }
+
+        // 1. Structural Check: Must be Object or Array (unless expected primitive)
+        // We prefer structured data as per best practices
+        const isStructured = typeof output === 'object';
+        if (!isStructured && expectedType !== 'string' && expectedType !== 'number' && expectedType !== 'boolean') {
+            return { valid: false, error: `Output must be structured (Object/Array), got ${typeof output}` };
+        }
+
+        // 2. Type Check (Basic)
+        if (expectedType === 'array' && !Array.isArray(output)) {
+            return { valid: false, error: `Expected Array, got ${typeof output}` };
+        }
+        if (expectedType === 'string' && typeof output !== 'string') {
+            return { valid: false, error: `Expected string, got ${typeof output}` };
+        }
+
+        return { valid: true };
     }
 }

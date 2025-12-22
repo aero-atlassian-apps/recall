@@ -14,7 +14,7 @@ export interface Tool {
   name: string;
   description: string;
   schema: any; // JSON schema for arguments
-  execute(input: any): Promise<string>;
+  execute(input: any): Promise<unknown>;
 }
 
 export interface AgentContext {

@@ -28,6 +28,7 @@ import {
 } from '../primitives/AgentPrimitives';
 
 import { ContextManager } from '../context/ContextManager';
+import { AgentLoopMonitor } from '../monitoring/AgentLoopMonitor';
 import { IntentRecognizer } from '../recognition/IntentRecognizer';
 import { EnhancedAgentPlanner } from '../planning/EnhancedAgentPlanner';
 import { StepExecutor } from '../execution/StepExecutor';
@@ -42,6 +43,7 @@ export class AgentOrchestrator implements AgenticRunner {
     private stepExecutor: StepExecutor;
     private reflector: ObservationReflector;
     private synthesizer: AnswerSynthesizer;
+    private monitor: AgentLoopMonitor;
 
     constructor(
         private llm: LLMPort,
@@ -53,6 +55,15 @@ export class AgentOrchestrator implements AgenticRunner {
         this.stepExecutor = new StepExecutor(llm, tools);
         this.reflector = new ObservationReflector(llm);
         this.synthesizer = new AnswerSynthesizer(llm);
+
+        // Initialize monitor with default config (should be passed in via config)
+        this.monitor = new AgentLoopMonitor({
+            maxSteps: 20,
+            maxTimeMs: 60000,
+            maxTokens: 10000,
+            maxCostCents: 50,
+            maxReplanAttempts: 3
+        });
 
         this.state = {
             phase: AgentPhase.IDLE,
@@ -66,6 +77,7 @@ export class AgentOrchestrator implements AgenticRunner {
 
     public async run(goal: string, context: AgentContext): Promise<AgenticRunResult> {
         this.resetState();
+        this.monitor.reset(); // Reset monitor
         const startTime = Date.now();
         const runId = `run-${startTime}`;
 
@@ -124,6 +136,13 @@ export class AgentOrchestrator implements AgenticRunner {
             let finalReflection: any;
 
             for (const step of plan.steps) {
+                // Check monitor limits
+                if (this.monitor.shouldHalt()) {
+                    const haltReason = this.monitor.getHaltReason();
+                    this.halt(haltReason || HaltReason.MAX_STEPS); // Fallback
+                    break;
+                }
+
                 if (this.state.isHalted) break;
                 if (this.state.stepCount >= (plan.maxRetries || 10)) {
                     this.halt(HaltReason.MAX_STEPS);
@@ -136,10 +155,20 @@ export class AgentOrchestrator implements AgenticRunner {
                 // EXECUTE
                 const result = await this.stepExecutor.execute(step, executionContext);
 
-                // Track usage
+                // Track usage in state AND monitor
                 executionContext.previousResults.push(result);
                 this.state.tokenCount += result.tokensUsed;
                 this.state.costCents += result.costCents;
+
+                this.monitor.recordStep({
+                    stepId: step.id,
+                    stepName: step.action,
+                    inputTokens: 0, // Need to get actuals if avail
+                    outputTokens: result.tokensUsed, // Approximation if split not avail
+                    costCents: result.costCents,
+                    durationMs: result.durationMs,
+                    model: 'unknown'
+                });
 
                 // OBSERVE
                 this.updatePhase(AgentPhase.OBSERVING);
