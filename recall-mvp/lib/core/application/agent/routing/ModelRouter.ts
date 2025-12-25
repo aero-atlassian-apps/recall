@@ -122,13 +122,72 @@ export interface RoutingDecision {
 }
 
 // ============================================================================
+// Default Models
+// ============================================================================
+
+export const DEFAULT_MODELS: ModelConfig[] = [
+    {
+        id: 'gemini-2.5-flash-lite',
+        name: 'Gemini 2.5 Flash-Lite',
+        provider: 'google',
+        tier: ModelTier.FLASH,
+        costPer1KInputTokens: 0.05,
+        costPer1KOutputTokens: 0.15,
+        maxContextTokens: 1000000,
+        maxOutputTokens: 8192,
+        latencyP50Ms: 500,
+        latencyP95Ms: 1500,
+        capabilities: [
+            TaskComplexity.CLASSIFICATION,
+            TaskComplexity.EXTRACTION,
+            TaskComplexity.FORMATTING,
+            TaskComplexity.SUMMARIZATION,
+            TaskComplexity.REASONING,
+            TaskComplexity.CREATIVE,
+        ],
+        qualityScores: {
+            [TaskComplexity.CLASSIFICATION]: 0.90,
+            [TaskComplexity.EXTRACTION]: 0.88,
+            [TaskComplexity.FORMATTING]: 0.92,
+            [TaskComplexity.SUMMARIZATION]: 0.85,
+            [TaskComplexity.REASONING]: 0.82,
+            [TaskComplexity.CREATIVE]: 0.80,
+        },
+        available: true
+    },
+    {
+        id: 'gemini-2.0-flash-lite-preview-02-05',
+        name: 'Gemini 2.0 Flash-Lite (Preview)',
+        provider: 'google',
+        tier: ModelTier.FLASH,
+        costPer1KInputTokens: 0.05,
+        costPer1KOutputTokens: 0.15,
+        maxContextTokens: 1000000,
+        maxOutputTokens: 8192,
+        latencyP50Ms: 400,
+        latencyP95Ms: 1200,
+        capabilities: [
+            TaskComplexity.CLASSIFICATION,
+            TaskComplexity.EXTRACTION,
+            TaskComplexity.FORMATTING,
+        ],
+        qualityScores: {
+            [TaskComplexity.CLASSIFICATION]: 0.85,
+            [TaskComplexity.EXTRACTION]: 0.80,
+            [TaskComplexity.FORMATTING]: 0.90,
+        },
+        available: true
+    }
+];
+
+// ============================================================================
 // Model Router Implementation
 // ============================================================================
 
 export class ModelRouter {
     private models: Map<string, ModelConfig> = new Map();
 
-    constructor(models: ModelConfig[]) {
+    constructor(models: ModelConfig[] = DEFAULT_MODELS) {
         for (const m of models) {
             this.models.set(m.id, m);
         }

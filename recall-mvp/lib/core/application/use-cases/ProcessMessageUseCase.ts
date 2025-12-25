@@ -8,7 +8,7 @@ import { CONVERSATIONAL_AGENT_SYSTEM_PROMPT } from '../agent/prompts/SystemPromp
 import { RetrieveMemoriesTool } from '../agent/tools/RetrieveMemoriesTool';
 import { CheckSafetyTool } from '../agent/tools/CheckSafetyTool';
 import { ToolRegistry, ToolCapability, ToolPermission } from '../agent/tools/ToolContracts';
-import { ModelRouter, ModelTier, TaskComplexity, ModelProfile } from '../agent/routing/ModelRouter';
+import { ModelRouter, ModelTier, TaskComplexity, ModelProfile, DEFAULT_MODELS } from '../agent/routing/ModelRouter';
 import { HallucinationDetector, GroundTruthSource } from '../safety/HallucinationDetector';
 import { z } from 'zod';
 
@@ -40,14 +40,34 @@ export class ProcessMessageUseCase {
     if (!session) throw new Error('Session not found');
 
     const transcript = JSON.parse(session.transcriptRaw || '[]');
+
+    // Handle conversation initialization signal
+    if (message === '__init__' && speaker === 'user') {
+      // Don't add __init__ to transcript - just return greeting
+      const user = await this.userRepository.findById(session.userId);
+      const userName = user?.name || 'there';
+      const greeting = `Hello${userName !== 'there' ? `, ${userName.split(' ')[0]}` : ''}! I'm Recall, your memory companion. What story would you like to share with me today?`;
+
+      // Add the greeting to transcript
+      transcript.push({
+        id: `msg-${Date.now()}`,
+        speaker: 'agent',
+        text: greeting,
+        timestamp: new Date().toISOString(),
+      });
+      session.transcriptRaw = JSON.stringify(transcript);
+      await this.sessionRepository.update(session);
+
+      return { text: greeting, strategy: 'greeting' };
+    }
+
+    // Save user message
     transcript.push({
       id: `msg-${Date.now()}`,
       speaker,
       text: message,
       timestamp: new Date().toISOString(),
     });
-
-    // Save user message first
     session.transcriptRaw = JSON.stringify(transcript);
     await this.sessionRepository.update(session);
 
@@ -122,39 +142,8 @@ export class ProcessMessageUseCase {
         }
       });
 
-      // 2. Initialize Model Router (Minimal Config for reliability)
-      const modelRouter = new ModelRouter([
-        {
-          id: 'gemini-flash',
-          name: 'Gemini Flash',
-          provider: 'google',
-          tier: ModelTier.FLASH,
-          costPer1KInputTokens: 0.005,
-          costPer1KOutputTokens: 0.015,
-          maxContextTokens: 32000,
-          maxOutputTokens: 8192,
-          latencyP50Ms: 500,
-          latencyP95Ms: 1500,
-          capabilities: [TaskComplexity.CLASSIFICATION, TaskComplexity.EXTRACTION, TaskComplexity.SUMMARIZATION],
-          qualityScores: {},
-          available: true
-        },
-        {
-          id: 'gemini-pro',
-          name: 'Gemini Pro',
-          provider: 'google',
-          tier: ModelTier.STANDARD,
-          costPer1KInputTokens: 0.05,
-          costPer1KOutputTokens: 0.15,
-          maxContextTokens: 32000,
-          maxOutputTokens: 8192,
-          latencyP50Ms: 1000,
-          latencyP95Ms: 3000,
-          capabilities: [TaskComplexity.REASONING, TaskComplexity.CREATIVE, TaskComplexity.CODE],
-          qualityScores: { [TaskComplexity.REASONING]: 0.9 },
-          available: true
-        }
-      ]);
+      // 2. Initialize Model Router (Use centralized defaults from ModelRouter.ts)
+      const modelRouter = new ModelRouter(DEFAULT_MODELS);
 
       const context = {
         userId: session.userId,

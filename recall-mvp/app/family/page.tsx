@@ -1,215 +1,395 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
+import { AppShell } from '@/components/layout/AppShell';
+
+interface Chapter {
+   id: string;
+   title: string;
+   content: string;
+   createdAt: string;
+   imageUrl?: string;
+}
+
+interface UserProfile {
+   userId: string;
+   role: string;
+   displayName: string;
+   seniorId?: string;
+   preferences?: {
+      topicsAvoid?: string[];
+      topicsLove?: string[];
+   };
+}
+
+// Fallback images for chapters without images
+const FALLBACK_IMAGES = [
+   "https://lh3.googleusercontent.com/aida-public/AB6AXuDmaBwnfZ0jlqigJaix5kYuz0Rq0JHiiTFWAmZz4VPJF6Ly17lEUbdA0f6lzKqpivxd9bk0hxEHldS4uLelKsew9eey3VqugEZGhIttfhgQX4YXqIRTg1o8d0pPtsr3VOn81miKv41Dyimh4u8jWF8VYlNLH5F_f_brWOxnn_3kMfqT8tm2lGSw91Yrgzqzi2mTudG7RRV5KjXpEB6YYRtiqh9MUis0D6t_PWL63vPdYl-a3tMDYd3svcfefhAEbQjpkwUJO5ov7TA",
+   "https://lh3.googleusercontent.com/aida-public/AB6AXuAvAvQ9RC6JGyrS_gKf5mBpeubVvJTaP6dIKRZZm2hTVl7nJDrSJn0ojobwYp5svDgODckSByJRv77gG-7Z6g8QCcyAXnjuZUoF4NhkfnIlZdPJaQXcn9Wksp1-bzUBlx33mfu4vMXzcWpEcv2eT4MFjDgJY95cc0hTz6dPlxTZRzyzZ51D-yIKN9YkCyuCmXW80ZU7qd6FWMsT4RCyio3w8Gk9q99dahFMggN0AEbFTXPc-JzjKLq1iapARDauoKc_VGSCdu3nsy0",
+   "https://lh3.googleusercontent.com/aida-public/AB6AXuB1uP1kSbs-YHxcRRKPQopZgwbhcqd-OfV8P0JrEilZJ6d_MmtpwteqqCFrS09Q42HGgucZEzlRqrDw6CAs74McFJHqJkHdzYog-YbhFkTO1qHSgT7jU1aPst3JFdZMLpK0uhsO-fpGuP6dQlhXbWnneamYLEh5bj5J103mTH68DHis7_ptRygyMo6Ba4dBTpQ1I-JTrIhbL6VJ6omN1qv0nDoO2BsRHuJoeymP9P6guBTPvFRJRds9KJTeehLCXGmQfB7YszQpNBo",
+];
+
+const TARGET_CHAPTERS = 12;
+
+function formatRelativeDate(dateString: string): string {
+   const date = new Date(dateString);
+   const now = new Date();
+   const diffMs = now.getTime() - date.getTime();
+   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+   if (diffDays === 0) return 'Added today';
+   if (diffDays === 1) return 'Added yesterday';
+   if (diffDays < 7) return `Added ${diffDays} days ago`;
+   return `Added ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
 
 export default function FamilyPortalPage() {
-  const [topicsToAvoid, setTopicsToAvoid] = useState<string[]>(['Politics', 'Recent Surgery']);
-  const [newTopic, setNewTopic] = useState('');
-  const [isExporting, setIsExporting] = useState(false);
+   const [profile, setProfile] = useState<UserProfile | null>(null);
+   const [chapters, setChapters] = useState<Chapter[]>([]);
+   const [topicsToAvoid, setTopicsToAvoid] = useState<string[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState('');
+   const [exporting, setExporting] = useState(false);
+   const [exportStatus, setExportStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  const handleAddTopic = () => {
-    if (newTopic.trim()) {
-      setTopicsToAvoid([...topicsToAvoid, newTopic.trim()]);
-      setNewTopic('');
-      // In a real app, we would call an API here to persist this
-    }
-  };
+   // Export Book as PDF
+   const handleExportBook = async () => {
+      if (exporting || chapters.length === 0) return;
 
-  const handleRemoveTopic = (topic: string) => {
-    setTopicsToAvoid(topicsToAvoid.filter(t => t !== topic));
-    // API call to persist
-  };
+      setExporting(true);
+      setExportStatus('idle');
 
-  const handleExport = async () => {
-    setIsExporting(true);
-    try {
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        alert("Book exported successfully! (Download started)");
-    } catch (e) {
-        alert("Failed to export book");
-    } finally {
-        setIsExporting(false);
-    }
-  };
+      try {
+         const res = await fetch('/api/storybooks/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+         });
 
-  return (
-    <div className="bg-[#F8F9FA] min-h-screen font-sans text-slate-900 pb-20">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Link href="/dashboard" className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 transition-colors mr-2">
-               <span className="material-symbols-outlined text-[20px] text-slate-600">arrow_back</span>
-            </Link>
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">L</div>
-            <h1 className="font-bold text-lg tracking-tight">The Lewis Family</h1>
-          </div>
-          <div className="flex items-center gap-4">
-             <div className="hidden md:flex items-center -space-x-2">
-                {[1,2,3].map(i => (
-                   <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                      {['M', 'D', 'S'][i-1]}
-                   </div>
-                ))}
-                <div className="w-8 h-8 rounded-full border-2 border-white bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">+4</div>
-             </div>
-             <button className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 text-sm font-semibold hover:bg-blue-100 transition-colors">
-                <span className="material-symbols-outlined text-[18px]">person_add</span>
-                <span className="hidden sm:inline">Invite</span>
-             </button>
-          </div>
-        </div>
-      </header>
+         if (!res.ok) throw new Error('Export failed');
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-           {/* Left Column: Feed */}
-           <div className="lg:col-span-2 space-y-6">
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                 <span className="material-symbols-outlined text-blue-600">feed</span>
-                 Latest Updates
-              </h2>
+         // Download the PDF
+         const blob = await res.blob();
+         const url = window.URL.createObjectURL(blob);
+         const a = document.createElement('a');
+         a.href = url;
+         a.download = `storybook-${new Date().toISOString().split('T')[0]}.pdf`;
+         document.body.appendChild(a);
+         a.click();
+         a.remove();
+         window.URL.revokeObjectURL(url);
 
-              {/* Feed Item 1 */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                 <div className="p-4 flex items-center gap-3 border-b border-slate-100 bg-slate-50/50">
-                    <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center border border-orange-200">
-                       <span className="material-symbols-outlined text-orange-600 filled">mic</span>
-                    </div>
-                    <div>
-                       <p className="font-semibold text-sm">Grandpa Arthur recorded a new story</p>
-                       <p className="text-xs text-slate-500">2 hours ago • "The Summer of '65"</p>
-                    </div>
-                 </div>
-                 <div className="p-6">
-                    <div className="flex flex-col md:flex-row gap-6">
-                       <div className="md:w-1/3">
-                          <div className="aspect-[4/5] rounded-xl bg-slate-100 relative overflow-hidden group cursor-pointer">
-                             <img src="https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=800&auto=format&fit=crop" className="object-cover w-full h-full transition-transform duration-700 group-hover:scale-105" alt="Story cover" />
-                             <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-                                <span className="material-symbols-outlined text-white text-[48px] opacity-80 group-hover:opacity-100 transition-opacity">play_circle</span>
-                             </div>
-                          </div>
-                       </div>
-                       <div className="md:w-2/3 flex flex-col justify-between">
-                          <div>
-                             <h3 className="text-2xl font-bold text-slate-900 mb-2 font-serif">The Summer of '65</h3>
-                             <p className="text-slate-600 leading-relaxed line-clamp-3 mb-4">
-                                "It started on a Tuesday, the kind of Tuesday where the sun feels like it's trying to make up for a whole week of rain. We packed the station wagon until it was bursting at the seams..."
-                             </p>
-                             <div className="flex flex-wrap gap-2 mb-4">
-                                <span className="px-2 py-1 rounded-md bg-slate-100 text-xs font-semibold text-slate-600 border border-slate-200">Road Trip</span>
-                                <span className="px-2 py-1 rounded-md bg-slate-100 text-xs font-semibold text-slate-600 border border-slate-200">Lake Tahoe</span>
-                             </div>
-                          </div>
-                          <div className="flex items-center gap-4 pt-4 border-t border-slate-100">
-                             <button className="flex items-center gap-1.5 text-slate-500 hover:text-red-500 transition-colors">
-                                <span className="material-symbols-outlined text-[20px]">favorite</span>
-                                <span className="text-sm font-medium">24</span>
-                             </button>
-                             <button className="flex items-center gap-1.5 text-slate-500 hover:text-blue-600 transition-colors">
-                                <span className="material-symbols-outlined text-[20px]">comment</span>
-                                <span className="text-sm font-medium">8 Comments</span>
-                             </button>
-                             <div className="flex-1"></div>
-                             <Link href="/chapter/1" className="text-blue-600 font-bold text-sm hover:underline">Read Full Story</Link>
-                          </div>
-                       </div>
-                    </div>
-                 </div>
-              </div>
-           </div>
+         setExportStatus('success');
+         setTimeout(() => setExportStatus('idle'), 3000);
+      } catch (err) {
+         console.error('Export error:', err);
+         setExportStatus('error');
+         setTimeout(() => setExportStatus('idle'), 3000);
+      } finally {
+         setExporting(false);
+      }
+   };
 
-           {/* Right Column: Stats & Gallery & Settings */}
-           <div className="space-y-8">
-              {/* Book Progress */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                 <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-orange-500">book</span>
-                    Book Progress
-                 </h3>
-                 <div className="space-y-4">
-                    <div className="flex items-end justify-between mb-1">
-                       <span className="text-3xl font-bold text-slate-900">12</span>
-                       <span className="text-sm text-slate-500 font-medium mb-1">Chapters Completed</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                       <div className="bg-orange-500 h-2.5 rounded-full" style={{width: '45%'}}></div>
-                    </div>
-                    <p className="text-xs text-slate-500 mt-2">Est. completion: Nov 15th</p>
-                    <button
-                        onClick={handleExport}
-                        disabled={isExporting}
-                        className="w-full mt-4 py-2 bg-slate-900 text-white rounded-lg font-semibold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                        {isExporting ? 'Generating PDF...' : (
-                            <>
-                                <span className="material-symbols-outlined text-[18px]">download</span>
-                                Export Book (PDF)
-                            </>
-                        )}
-                    </button>
-                 </div>
-              </div>
+   useEffect(() => {
+      async function fetchData() {
+         try {
+            // 1. Fetch user profile
+            const profileRes = await fetch('/api/users/profile');
+            if (!profileRes.ok) {
+               throw new Error('Failed to fetch profile');
+            }
+            const profileData = await profileRes.json();
+            setProfile(profileData);
+            setTopicsToAvoid(profileData.preferences?.topicsAvoid || []);
 
-              {/* Topics to Avoid (F-01) */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                 <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-red-500">block</span>
-                    Topics to Avoid
-                 </h3>
-                 <div className="space-y-3">
-                    <div className="flex flex-wrap gap-2">
-                        {topicsToAvoid.map((topic, i) => (
-                            <span key={i} className="px-3 py-1 bg-red-50 text-red-600 text-sm font-medium rounded-full flex items-center gap-1">
-                                {topic}
-                                <button onClick={() => handleRemoveTopic(topic)} className="hover:text-red-800">
-                                    <span className="material-symbols-outlined text-[14px]">close</span>
-                                </button>
-                            </span>
-                        ))}
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                        <input
-                            type="text"
-                            value={newTopic}
-                            onChange={(e) => setNewTopic(e.target.value)}
-                            placeholder="Add topic..."
-                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
-                        />
+            // 2. Fetch chapters via family endpoint
+            if (profileData.userId) {
+               const chaptersRes = await fetch(`/api/family/chapters?userId=${profileData.userId}`);
+               if (chaptersRes.ok) {
+                  const chaptersData = await chaptersRes.json();
+                  setChapters(chaptersData.chapters || []);
+               }
+            }
+         } catch (err: any) {
+            console.error('Error fetching family portal data:', err);
+            setError(err.message || 'Failed to load data');
+         } finally {
+            setLoading(false);
+         }
+      }
+      fetchData();
+   }, []);
+
+   // Note: Topics to Avoid are managed by the senior, family members can only view them
+
+   // Calculate book progress
+   const bookProgress = {
+      current: chapters.length,
+      target: TARGET_CHAPTERS,
+      percentage: Math.round((chapters.length / TARGET_CHAPTERS) * 100),
+   };
+
+   // Get latest updates (most recent 3 chapters)
+   const latestUpdates = chapters
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 3);
+
+   // Get recent photos from chapters
+   const recentPhotos = chapters
+      .filter(ch => ch.imageUrl)
+      .slice(0, 4)
+      .map((ch, i) => ({
+         src: ch.imageUrl || FALLBACK_IMAGES[i % FALLBACK_IMAGES.length],
+         label: ch.title?.substring(0, 15) || 'Memory',
+      }));
+
+   // Add fallback photos if not enough real ones
+   while (recentPhotos.length < 4) {
+      recentPhotos.push({
+         src: FALLBACK_IMAGES[recentPhotos.length % FALLBACK_IMAGES.length],
+         label: 'Memory',
+      });
+   }
+
+   if (loading) {
+      return (
+         <AppShell userType="family" showNav={true}>
+            <div className="flex items-center justify-center min-h-[50vh]">
+               <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-text-secondary-light">Loading family portal...</p>
+               </div>
+            </div>
+         </AppShell>
+      );
+   }
+
+   if (error) {
+      return (
+         <AppShell userType="family" showNav={true}>
+            <div className="flex items-center justify-center min-h-[50vh]">
+               <div className="text-center">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center text-red-500 mx-auto mb-4">
+                     <span className="material-symbols-outlined text-3xl">error</span>
+                  </div>
+                  <p className="text-text-secondary-light">{error}</p>
+               </div>
+            </div>
+         </AppShell>
+      );
+   }
+
+   return (
+      <div className="min-h-screen bg-[#FCF8F3] font-sans text-text-primary overflow-x-hidden">
+
+         {/* Premium Header */}
+         <header className="h-24 bg-white/40 backdrop-blur-xl flex items-center px-10 border-b border-peach-main/5">
+            <div className="container mx-auto flex justify-between items-center">
+               <Link href="/" className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-peach-warm to-terracotta rounded-2xl flex items-center justify-center text-white shadow-lg">
+                     <span className="material-symbols-outlined text-3xl filled">mic</span>
+                  </div>
+                  <span className="text-3xl font-serif font-black text-terracotta tracking-tight">ReCall</span>
+               </Link>
+               <nav className="hidden lg:flex items-center gap-10">
+                  <Link href="/" className="font-bold text-brown-main opacity-60 hover:opacity-100 transition-opacity">Home</Link>
+                  <Link href="/stories" className="font-bold text-brown-main opacity-60 hover:opacity-100 transition-opacity">Stories</Link>
+                  <div className="bg-peach-main/10 px-6 py-2 rounded-full ring-2 ring-peach-main/20">
+                     <Link href="/family" className="font-extrabold text-terracotta">Family Portal</Link>
+                  </div>
+                  <Link href="/profile" className="font-bold text-brown-main opacity-60 hover:opacity-100 transition-opacity">Profile</Link>
+                  <Link href="/settings" className="font-bold text-brown-main opacity-60 hover:opacity-100 transition-opacity">Settings</Link>
+               </nav>
+            </div>
+         </header>
+
+         <main className="max-w-7xl mx-auto px-6 py-12 min-h-screen">
+
+            {/* Hero Section: Warm & Illustrative */}
+            <div className="relative w-full rounded-[3rem] overflow-hidden mb-16 bg-[#F3E5D8]/40 border border-[#E8D4C0] animate-fade-in shadow-inner-soft">
+               <div className="relative z-10 px-8 py-16 md:px-20 flex flex-col md:flex-row justify-between items-center gap-10">
+                  <div className="text-center md:text-left">
+                     <h1 className="text-5xl md:text-7xl font-serif font-extrabold text-text-primary mb-4 leading-tight">
+                        {profile?.displayName ? `${profile.displayName} Portal` : 'Arthur Portal'}
+                     </h1>
+                     <p className="text-text-secondary text-xl font-medium max-w-xl leading-relaxed opacity-80">
+                        Immortalizing our family's stories, one conversation at a time.
+                     </p>
+                  </div>
+                  <div className="flex-shrink-0">
+                     <button
+                        className="bg-terracotta text-white px-10 py-5 rounded-full font-bold shadow-xl shadow-terracotta/20 hover:scale-105 transition-all duration-300 active:scale-95"
+                     >
+                        Invite Family
+                     </button>
+                  </div>
+               </div>
+
+               {/* Decorative background element */}
+               <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-peach-main/20 to-transparent pointer-events-none"></div>
+            </div>
+
+            {/* Layout Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
+
+               {/* Left Column: Updates & Topics */}
+               <div className="lg:col-span-7 space-y-16 animate-fade-in [animation-delay:0.1s]">
+
+                  {/* Latest Updates */}
+                  <section>
+                     <h2 className="text-3xl font-serif font-extrabold text-text-primary mb-8 italic">Latest Updates</h2>
+
+                     {latestUpdates.length === 0 ? (
+                        <div className="bg-white/50 border border-peach-main/10 rounded-[2rem] p-12 text-center shadow-sm">
+                           <p className="text-text-secondary font-medium italic opacity-60">No stories recorded yet. Check back soon!</p>
+                        </div>
+                     ) : (
+                        <div className="space-y-6">
+                           {latestUpdates.map((chapter, index) => (
+                              <Link
+                                 key={chapter.id}
+                                 href={`/stories/${chapter.id}`}
+                                 className="group block bg-[#E8C5A4]/40 hover:bg-[#E8C5A4]/60 border border-white/50 rounded-[2rem] p-4 shadow-sm transition-all duration-300"
+                              >
+                                 <div className="flex items-center gap-6">
+                                    <div className="w-24 h-24 rounded-2xl overflow-hidden bg-white/50 flex-shrink-0 border-2 border-white shadow-sm">
+                                       <Image
+                                          src={chapter.imageUrl || FALLBACK_IMAGES[index % FALLBACK_IMAGES.length]}
+                                          alt={chapter.title}
+                                          width={120}
+                                          height={120}
+                                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                                       />
+                                    </div>
+                                    <div className="flex-1">
+                                       <h3 className="text-xl font-serif font-extrabold text-text-primary group-hover:text-terracotta transition-colors mb-1">
+                                          {chapter.title || 'Untitled Memory'}
+                                       </h3>
+                                       <p className="text-sm font-bold text-text-muted uppercase tracking-widest opacity-70">
+                                          {formatRelativeDate(chapter.createdAt)}
+                                       </p>
+                                    </div>
+                                 </div>
+                              </Link>
+                           ))}
+                        </div>
+                     )}
+                  </section>
+
+                  {/* Topics to Avoid */}
+                  <section>
+                     <h2 className="text-3xl font-serif font-extrabold text-text-primary mb-8 italic">Topics to Avoid</h2>
+
+                     <div className="space-y-6">
+                        <div className="flex flex-wrap gap-3">
+                           {topicsToAvoid.length === 0 ? (
+                              <p className="text-text-muted font-medium italic">No topics restricted yet.</p>
+                           ) : (
+                              topicsToAvoid.map(topic => (
+                                 <span key={topic} className={`px-6 py-2 rounded-full text-sm font-bold shadow-sm border transition-all ${topic === 'Politics' ? 'bg-[#FDE2D0] border-peach-main/50 text-terracotta' : 'bg-[#F3E5D8]/50 border-transparent text-text-secondary'
+                                    }`}>
+                                    {topic}
+                                 </span>
+                              ))
+                           )}
+                        </div>
+
+                        {/* Fake Add Topic Bar */}
+                        <div className="flex items-center gap-4">
+                           <div className="flex-1 h-14 bg-white/80 rounded-full border-4 border-peach-main/20 flex items-center px-6 shadow-inner-soft">
+                              <input
+                                 type="text"
+                                 placeholder="Add a topic..."
+                                 className="w-full bg-transparent outline-none text-text-primary font-medium placeholder:text-text-muted/60"
+                                 readOnly
+                              />
+                           </div>
+                           <button className="w-14 h-14 bg-[#D68D5B]/70 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-terracotta transition-colors">
+                              <span className="material-symbols-outlined text-2xl">add</span>
+                           </button>
+                        </div>
+                     </div>
+                  </section>
+
+               </div>
+
+               {/* Right Column: Progress & Media */}
+               <div className="lg:col-span-5 space-y-16 animate-fade-in [animation-delay:0.2s]">
+
+                  {/* Book Progress */}
+                  <section>
+                     <h2 className="text-3xl font-serif font-extrabold text-text-primary mb-8 italic">Book Progress</h2>
+                     <div className="bg-white rounded-[3rem] p-10 shadow-xl shadow-peach-warm/10 border border-peach-main/10 text-center relative overflow-hidden">
+                        <div className="flex items-baseline justify-center gap-4 mb-8">
+                           <span className="text-[120px] font-serif font-extrabold text-[#D5B59C] leading-none">{bookProgress.current}</span>
+                           <div className="text-left">
+                              <span className="block text-xl font-bold text-text-primary">of {bookProgress.target} chapters</span>
+                              <span className="text-2xl font-extrabold text-text-primary">{bookProgress.percentage}%</span>
+                           </div>
+                        </div>
+
+                        <div className="w-full h-4 bg-[#F3E5D8]/50 rounded-full overflow-hidden mb-10 shadow-inner">
+                           <div
+                              className="h-full bg-gradient-to-r from-[#8DB6A8] to-terracotta rounded-full transition-all duration-1000"
+                              style={{ width: `${Math.min(bookProgress.percentage, 100)}%` }}
+                           ></div>
+                        </div>
+
                         <button
-                            onClick={handleAddTopic}
-                            className="px-3 py-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                           onClick={handleExportBook}
+                           disabled={exporting || chapters.length === 0}
+                           className="w-full py-5 rounded-2xl font-bold bg-[#D68D5B] text-white hover:bg-sienna shadow-xl shadow-terracotta/20 transition-all active:scale-95 disabled:opacity-50"
                         >
-                            <span className="material-symbols-outlined">add</span>
+                           {exporting ? 'Exporting...' : 'Export Book (PDF)'}
                         </button>
-                    </div>
-                 </div>
-              </div>
+                     </div>
+                  </section>
 
-              {/* Recent Photos */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                 <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                       <span className="material-symbols-outlined text-purple-500">photo_library</span>
-                       Recent Photos
-                    </h3>
-                    <button className="text-blue-600 text-xs font-bold hover:underline">View All</button>
-                 </div>
-                 <div className="grid grid-cols-3 gap-2">
-                    {[1,2,3,4,5,6].map(i => (
-                       <div key={i} className="aspect-square rounded-lg bg-slate-100 relative overflow-hidden group cursor-pointer">
-                          <div className="absolute inset-0 bg-slate-200 group-hover:bg-slate-300 transition-colors"></div>
-                       </div>
-                    ))}
-                 </div>
-              </div>
-           </div>
-        </div>
-      </main>
-    </div>
-  );
+                  {/* Recent Photos */}
+                  <section>
+                     <h2 className="text-3xl font-serif font-extrabold text-text-primary mb-8 italic">Recent Photos</h2>
+
+                     <div className="grid grid-cols-2 gap-6 mb-6">
+                        {recentPhotos.map((photo, i) => (
+                           <div key={i} className="group">
+                              <div className="aspect-square rounded-[2rem] overflow-hidden shadow-sm border-4 border-white transition-all duration-500 hover:shadow-xl hover:-translate-y-1">
+                                 <Image
+                                    src={photo.src}
+                                    alt={photo.label}
+                                    width={300}
+                                    height={300}
+                                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                                 />
+                              </div>
+                              <p className="mt-3 text-sm font-bold text-text-secondary opacity-60 px-2">{photo.label}</p>
+                           </div>
+                        ))}
+                     </div>
+
+                     <div className="flex justify-end">
+                        <Link href="/stories" className="flex items-center gap-2 text-text-primary font-bold hover:text-terracotta transition-colors">
+                           View All <span className="material-symbols-outlined text-sm">expand_less</span>
+                        </Link>
+                     </div>
+                  </section>
+
+               </div>
+            </div>
+
+         </main>
+
+         {/* Footer */}
+         <footer className="py-20 bg-white/40 border-t border-peach-main/10 mt-32">
+            <div className="container mx-auto px-10 max-w-7xl flex flex-col md:flex-row justify-between items-center gap-10">
+               <p className="text-sm font-bold text-text-muted opacity-60">© 2024 ReCall. Immortalizing Stories.</p>
+               <div className="flex gap-10 text-sm font-bold text-text-muted opacity-60">
+                  <Link href="#" className="hover:text-terracotta transition-colors">About</Link>
+                  <Link href="#" className="hover:text-terracotta transition-colors">Help</Link>
+                  <Link href="#" className="hover:text-terracotta transition-colors">Privacy</Link>
+               </div>
+            </div>
+         </footer>
+      </div>
+   );
 }

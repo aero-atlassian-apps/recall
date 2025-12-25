@@ -21,34 +21,45 @@ const config = {
     },
     extend: {
       colors: {
-        // Primary Theme (from Landing Page & Onboarding)
-        "primary": "#E07A5F",
-        "primary-dark": "#C66348",
-        "secondary": "#F2CC8F",
-        "background": "#FDFCF8",
-        "surface": "#FFFFFF",
-        "text-main": "#3D3430",
-        "text-muted": "#756A63",
+        /* ============================================
+           ReCall Design System Colors
+           Based on target design specification
+           ============================================ */
 
-        // Warm Theme (from Onboarding/Chapter Detail)
-        "warm-primary": "#E08E6D",
-        "warm-secondary": "#F3D8C6",
-        "warm-bg-light": "#FDFBF7",
-        "warm-bg-dark": "#2A2320",
-        "text-sub": "#8C7B70",
+        // Primary Background
+        "background-cream": "#FCF8F3",
 
-        // Accent/Status Colors
-        "accent": "#f4a261",
+        // Accent Colors (Warm Tones)
+        "gold": "#E1B88B",           // Muted Gold/Light Ochre
+        "terracotta": "#D68D5B",     // Primary CTA - Terracotta
+        "sienna": "#B87333",         // Logo/Rich Accents - Rich Sienna
 
-        // Glassmorphism
-        "glass-border": "rgba(255, 255, 255, 0.4)",
-        "glass-bg": "rgba(255, 255, 255, 0.6)",
-        "dark-glass-bg": "rgba(42, 35, 32, 0.6)",
+        // Neutral Tones
+        "text-primary": "#5A4F4A",   // Deep Warm Grey/Brown
+        "text-secondary": "#8A7F7C", // Medium Warm Grey
+        "text-muted": "#CFC7C3",     // Light Warm Grey
+
+        // New Warm Accents for Pivot
+        "peach": {
+          "light": "#FFF5ED",
+          "main": "#FDE2D0",
+          "warm": "#FAC9A8",
+        },
+        "orange-warm": "#E89B66",
+
+        // Functional aliases
+        "primary": "#D68D5B",
+        "primary-dark": "#B87333",
+        "secondary": "#E1B88B",
+        "background-light": "#FCF8F3",
+        "surface-light": "#FCF8F3",
+        "border-light": "#CFC7C3",
 
         // ShadCN UI Colors
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
@@ -68,16 +79,21 @@ const config = {
         },
       },
       fontFamily: {
-        sans: ["Inter", "sans-serif"],
-        display: ["Spline Sans", "sans-serif"],
-        serif: ["Lora", "serif", "Noto Serif"],
+        // Primary Font (Headings) - Warm, legible serif
+        display: ["Merriweather", "Georgia", "serif"],
+        serif: ["Merriweather", "Georgia", "serif"],
+        // Secondary Font (Body) - Clean, modern sans-serif
+        sans: ["Inter", "system-ui", "sans-serif"],
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
-        "2xl": "calc(var(--radius) + 4px)",
-        "3xl": "calc(var(--radius) + 12px)",
+        DEFAULT: "1.25rem", // 20px - matches design system
+        sm: "0.5rem",
+        md: "0.75rem",
+        lg: "1.25rem",
+        xl: "1.5rem",
+        "2xl": "2rem",
+        "3xl": "3rem",
+        full: "9999px",
       },
       keyframes: {
         "accordion-down": {

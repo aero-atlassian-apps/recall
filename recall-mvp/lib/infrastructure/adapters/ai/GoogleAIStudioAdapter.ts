@@ -1,219 +1,102 @@
+import { LLMPort } from '../../../core/application/ports/LLMPort';
+import * as crypto from 'crypto';
+
+interface GeminiResponse {
+    candidates?: Array<{
+        content: {
+            parts: Array<{ text?: string }>;
+        };
+    }>;
+    usageMetadata?: {
+        promptTokenCount?: number;
+        candidatesTokenCount?: number;
+    };
+}
+
 /**
- * Google AI Studio Adapter - FREE Gemini API access with production safety.
+ * GoogleAIStudioAdapter - Pure Gemini API client.
  * 
- * Uses Google AI Studio API (not Vertex AI) which has a generous free tier:
- * - Gemini 1.5 Flash: 1,500 requests/day FREE
- * - Gemini 2.0 Flash: 250 requests/day FREE
+ * This adapter is intentionally simple and stateless:
+ * - Makes single API calls to Gemini
+ * - Reports errors as-is (no retry logic)
+ * - Logs usage metadata for observability
  * 
- * Production features:
- * - Request timeouts (prevents hung requests)
- * - Token usage tracking
- * - Graceful error handling
+ * Retry logic, rate limiting, and queuing are handled by LLMGateway.
  * 
- * Get your FREE API key at: https://aistudio.google.com/apikey
+ * Configuration:
+ * - GOOGLE_AI_API_KEY: Required API key
  * 
  * @module GoogleAIStudioAdapter
  */
 
-import { LLMPort } from '../../../core/application/ports/LLMPort';
-import { llmUsageTracker } from '../../../core/application/services/LLMUsageTracker';
-import { logger } from '../../../core/application/Logger';
-import { JsonParser } from '../../../core/application/utils/JsonParser';
-
-interface GeminiResponse {
-    candidates: Array<{
-        content: {
-            parts: Array<{ text: string }>;
-        };
-    }>;
-    usageMetadata?: {
-        promptTokenCount: number;
-        candidatesTokenCount: number;
-        totalTokenCount: number;
-    };
-}
-
-// Production timeouts
-const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
-const IMAGE_TIMEOUT_MS = 60000; // 60 seconds for image analysis
+const logger = {
+    info: (msg: string, meta?: any) => console.log(`[GoogleAIStudioAdapter] ${msg}`, meta || ''),
+    warn: (msg: string, meta?: any) => console.warn(`[GoogleAIStudioAdapter] ${msg}`, meta || ''),
+    error: (msg: string, meta?: any) => console.error(`[GoogleAIStudioAdapter] ${msg}`, meta || ''),
+};
 
 export class GoogleAIStudioAdapter implements LLMPort {
     private apiKey: string;
     private baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
-    private defaultModel = 'gemini-1.5-flash';
+    private model = 'gemini-2.0-flash-exp';
 
     constructor() {
         this.apiKey = process.env.GOOGLE_AI_API_KEY || '';
+
         if (!this.apiKey) {
-            logger.warn('GoogleAIStudioAdapter: No GOOGLE_AI_API_KEY set', {
-                hint: 'Get one FREE at https://aistudio.google.com/apikey'
-            });
-        }
-    }
-
-    /**
-     * Fetch with timeout support.
-     */
-    private async fetchWithTimeout(
-        url: string,
-        options: RequestInit,
-        timeoutMs: number = DEFAULT_TIMEOUT_MS
-    ): Promise<Response> {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-        try {
-            const response = await fetch(url, {
-                ...options,
-                signal: controller.signal,
-            });
-            return response;
-        } finally {
-            clearTimeout(timeoutId);
-        }
-    }
-
-    private async callGemini(
-        prompt: string,
-        options?: {
-            model?: string;
-            maxTokens?: number;
-            temperature?: number;
-            responseType?: 'text' | 'json';
-            userId?: string;
-            purpose?: string;
-        }
-    ): Promise<string> {
-        const model = options?.model || this.defaultModel;
-        const url = `${this.baseUrl}/models/${model}:generateContent?key=${this.apiKey}`;
-        const requestId = crypto.randomUUID();
-        const startTime = Date.now();
-
-        const body: any = {
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                maxOutputTokens: options?.maxTokens || 8192,
-                temperature: options?.temperature || 0.7,
-            }
-        };
-
-        // Request JSON response format if specified
-        if (options?.responseType === 'json') {
-            body.generationConfig.responseMimeType = 'application/json';
+            throw new Error('GoogleAIStudioAdapter: GOOGLE_AI_API_KEY is required');
         }
 
-        try {
-            const response = await this.fetchWithTimeout(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            }, DEFAULT_TIMEOUT_MS);
-
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(`Gemini API error: ${response.status} - ${error}`);
-            }
-
-            const data: GeminiResponse = await response.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const durationMs = Date.now() - startTime;
-
-            // Track usage
-            const inputTokens = data.usageMetadata?.promptTokenCount ||
-                llmUsageTracker.estimateTokens(prompt);
-            const outputTokens = data.usageMetadata?.candidatesTokenCount ||
-                llmUsageTracker.estimateTokens(text);
-
-            llmUsageTracker.record({
-                requestId,
-                userId: options?.userId,
-                model,
-                provider: 'google_ai',
-                inputTokens,
-                outputTokens,
-                purpose: options?.purpose || 'text_generation',
-                durationMs,
-                success: true,
-            });
-
-            return text;
-        } catch (e: any) {
-            const durationMs = Date.now() - startTime;
-
-            // Handle timeout specifically
-            if (e.name === 'AbortError') {
-                logger.error('GoogleAIStudioAdapter: Request timed out', {
-                    requestId,
-                    model,
-                    timeoutMs: DEFAULT_TIMEOUT_MS,
-                });
-                throw new Error(`Gemini API timeout after ${DEFAULT_TIMEOUT_MS}ms`);
-            }
-
-            // Track failed request
-            llmUsageTracker.record({
-                requestId,
-                userId: options?.userId,
-                model,
-                provider: 'google_ai',
-                inputTokens: llmUsageTracker.estimateTokens(prompt),
-                outputTokens: 0,
-                purpose: options?.purpose || 'text_generation',
-                durationMs,
-                success: false,
-            });
-
-            logger.error('GoogleAIStudioAdapter: API call failed', {
-                requestId,
-                error: e.message,
-            });
-            throw e;
-        }
+        logger.info('GoogleAIStudioAdapter initialized (pure client mode)');
     }
 
     async generateText(
         prompt: string,
-        options?: { model?: string; maxTokens?: number; temperature?: number }
+        options?: { model?: string; maxTokens?: number; temperature?: number; jsonMode?: boolean }
     ): Promise<string> {
-        if (!this.apiKey) {
-            logger.warn('GoogleAIStudioAdapter: No API key, returning mock response');
-            return 'Mock response - Set GOOGLE_AI_API_KEY for real Gemini responses';
+        const model = options?.model || this.model;
+
+        const contents = [{
+            role: 'user',
+            parts: [{ text: prompt }]
+        }];
+
+        const generationConfig: any = {
+            temperature: options?.temperature ?? 0.7,
+            maxOutputTokens: options?.maxTokens ?? 1024,
+        };
+
+        if (options?.jsonMode) {
+            generationConfig.responseMimeType = "application/json";
         }
-        return this.callGemini(prompt, { ...options, purpose: 'text_generation' });
+
+        return this.callGemini(model, { contents, generationConfig });
     }
 
     async generateJson<T>(
         prompt: string,
-        _schema?: any,
+        schema?: any,
         options?: { model?: string; maxTokens?: number; temperature?: number }
     ): Promise<T> {
-        if (!this.apiKey) {
-            logger.warn('GoogleAIStudioAdapter: No API key, returning mock JSON');
-            return {} as T;
-        }
+        const jsonPrompt = `${prompt}\n\nIMPORTANT: Return ONLY valid JSON matching this schema: ${JSON.stringify(schema || {})}`;
+
+        const optionsWithJson = { ...options, jsonMode: true };
+        const responseText = await this.generateText(jsonPrompt, optionsWithJson);
+
+        // Clean and parse JSON response
+        let cleanText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+        cleanText = cleanText.replace(/^Here is the JSON.*$/im, '').trim();
 
         try {
-            // First try with JSON response mode
-            const text = await this.callGemini(prompt, {
-                ...options,
-                responseType: 'json',
-                purpose: 'json_generation',
-            });
-            return JsonParser.parse<T>(text);
+            return JSON.parse(cleanText) as T;
         } catch (e) {
-            logger.warn('GoogleAIStudioAdapter: JSON mode failed, trying text fallback', { error: e });
-            // Fallback: Ask for JSON in prompt
-            const text = await this.callGemini(
-                `${prompt}\n\nRespond with valid JSON only. No markdown, no code blocks.`,
-                { ...options, purpose: 'json_generation' }
-            );
-
-            try {
-                return JsonParser.parse<T>(text);
-            } catch (parseError) {
-                logger.error('GoogleAIStudioAdapter: Failed to parse JSON', { text, error: parseError });
-                throw new Error("Failed to parse JSON from LLM");
+            // Try to extract JSON object from response
+            const match = cleanText.match(/\{[\s\S]*\}/);
+            if (match) {
+                return JSON.parse(match[0]) as T;
             }
+            logger.error('Failed to parse JSON response', { text: cleanText.substring(0, 200) });
+            throw new Error('Failed to parse JSON from LLM response');
         }
     }
 
@@ -223,66 +106,74 @@ export class GoogleAIStudioAdapter implements LLMPort {
         prompt: string,
         options?: { model?: string }
     ): Promise<string> {
-        if (!this.apiKey) {
-            return 'Mock image analysis - Set GOOGLE_AI_API_KEY for real analysis';
-        }
+        const model = options?.model || this.model;
 
-        const model = options?.model || 'gemini-1.5-flash';
+        const contents = [{
+            role: 'user',
+            parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: imageBase64 } }
+            ]
+        }];
+
+        return this.callGemini(model, { contents });
+    }
+
+    /**
+     * Make a single API call to Gemini.
+     * 
+     * This method does NOT retry - that responsibility belongs to LLMGateway.
+     * Errors are thrown as-is for the gateway to handle.
+     */
+    private async callGemini(model: string, payload: any): Promise<string> {
         const url = `${this.baseUrl}/models/${model}:generateContent?key=${this.apiKey}`;
         const requestId = crypto.randomUUID();
         const startTime = Date.now();
 
-        const body = {
-            contents: [{
-                parts: [
-                    { text: prompt },
-                    { inlineData: { mimeType, data: imageBase64 } }
-                ]
-            }],
-            generationConfig: {
-                maxOutputTokens: 4096,
-                temperature: 0.4,
-            }
-        };
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-        try {
-            const response = await this.fetchWithTimeout(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            }, IMAGE_TIMEOUT_MS);
-
-            if (!response.ok) {
-                throw new Error(`Gemini Vision API error: ${response.status}`);
-            }
-
-            const data: GeminiResponse = await response.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const durationMs = Date.now() - startTime;
-
-            // Track usage
-            llmUsageTracker.record({
-                requestId,
-                model,
-                provider: 'google_ai',
-                inputTokens: data.usageMetadata?.promptTokenCount || 1000,
-                outputTokens: data.usageMetadata?.candidatesTokenCount ||
-                    llmUsageTracker.estimateTokens(text),
-                purpose: 'image_analysis',
-                durationMs,
-                success: true,
-            });
-
-            return text;
-        } catch (e: any) {
-            if (e.name === 'AbortError') {
-                throw new Error(`Image analysis timeout after ${IMAGE_TIMEOUT_MS}ms`);
-            }
-            logger.error('GoogleAIStudioAdapter: Image analysis failed', {
-                requestId,
-                error: e.message,
-            });
-            throw e;
+        // Report errors for gateway to handle
+        if (response.status === 404) {
+            throw new Error(`Model ${model} not found`);
         }
+
+        if (response.status === 429) {
+            // Include Retry-After header if present
+            const retryAfter = response.headers.get('Retry-After');
+            throw new Error(`RATE_LIMIT:${retryAfter || '60'}`);
+        }
+
+        if (response.status === 503) {
+            throw new Error('SERVICE_OVERLOADED');
+        }
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Gemini API error: ${response.status} - ${errText}`);
+        }
+
+        const data: GeminiResponse = await response.json();
+
+        const inputTokens = data.usageMetadata?.promptTokenCount || 0;
+        const outputTokens = data.usageMetadata?.candidatesTokenCount || 0;
+
+        logger.info('LLM request completed', {
+            requestId,
+            model,
+            inputTokens,
+            outputTokens,
+            totalTokens: inputTokens + outputTokens,
+            durationMs: Date.now() - startTime
+        });
+
+        if (!data.candidates || data.candidates.length === 0) {
+            return '';
+        }
+
+        return data.candidates[0].content.parts[0].text || '';
     }
 }

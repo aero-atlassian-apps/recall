@@ -2,437 +2,290 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import Link from 'next/link';
 import { AudioPipeline } from '@/lib/audio/AudioPipeline';
-
-const LANGUAGES = [
-  { code: 'en', name: 'English', flag: '🇺🇸' },
-  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
-  { code: 'pt', name: 'Português', flag: '🇵🇹' },
-  { code: 'ru', name: 'Русский', flag: '🇷🇺' },
-];
+import { AuthGuard } from '@/components/common/AuthGuard';
+import { useStreamingChat } from '@/lib/stores/useStreamingChat';
+import { Header } from '@/components/layout/Header';
+import { Footer } from '@/components/layout/Footer';
+import Image from 'next/image';
 
 export default function ActiveConversationPage() {
   const router = useRouter();
-  const params = useParams(); // Get sessionId from URL
-  const sessionId = params?.id as string || 'mock-session-id';
+  const params = useParams();
+  const [sessionId, setSessionId] = useState<string | null>(params?.id as string || null);
 
   const [isListening, setIsListening] = useState(false);
-  const [showWaves, setShowWaves] = useState(false);
-  const [transcript, setTranscript] = useState<string[]>([]);
+  const [transcript, setTranscript] = useState<{ text: string, isAI: boolean }[]>([]);
 
-  // New States
-  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
-  const [selectedLanguage, setSelectedLanguage] = useState(LANGUAGES[0]);
-  const [saveStatus, setSaveStatus] = useState<'recording' | 'saving' | 'saved'>('recording');
-  const [showEndConfirmation, setShowEndConfirmation] = useState(false);
-  const [showInput, setShowInput] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [streamingResponse, setStreamingResponse] = useState<string>('');
 
-  // Audio Pipeline State
+  // Streaming Hook
+  const {
+    agentState,
+    sendMessage: sendStreamingMessage,
+  } = useStreamingChat({
+    onToken: (token, fullText) => {
+      setStreamingResponse(fullText);
+    },
+    onComplete: (response) => {
+      if (response.text) {
+        setTranscript(prev => [...prev, { text: response.text, isAI: true }]);
+      }
+      setStreamingResponse('');
+    },
+    onError: (error) => {
+      setToastMessage(error);
+      setStreamingResponse('');
+    },
+  });
+
+  // Audio Pipeline
   const audioPipeline = useRef<AudioPipeline | null>(null);
-  const [volume, setVolume] = useState(0);
-
-  // Image Upload State
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  // Helper for AI Response logic
-  const handleAIResponse = (text: string, audioBase64?: string) => {
-    let finalText = text;
-    if (!text || text.trim().length === 0) {
-      finalText = "Tell me more about that.";
-    }
-    setTranscript(prev => [...prev, finalText]);
-
-    // Play Audio if provided
-    if (audioBase64) {
-        try {
-            const audio = new Audio(`data:audio/mpeg;base64,${audioBase64}`);
-            audio.play();
-        } catch (e) {
-            console.error("Failed to play audio", e);
-        }
-    }
-  };
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Initial greeting (Simulated for demo if no history)
-    const timer = setTimeout(() => {
-      // Only greet if transcript is empty
-      if (transcript.length === 0) {
-          handleAIResponse('Hello Arthur, it\'s great to speak with you again. I was hoping you could tell me more about that summer trip to the lake house you mentioned?');
-          // Don't auto-start listening until user taps mic for permissions
-      }
-    }, 1000);
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [transcript, streamingResponse]);
 
-    // Initialize Audio Pipeline
+  // Initialize Session
+  useEffect(() => {
+    const createSession = async () => {
+      if (sessionId) return;
+      try {
+        const res = await fetch('/api/sessions/start', { method: 'POST', body: JSON.stringify({}) });
+        if (res.ok) {
+          const data = await res.json();
+          setSessionId(data.sessionId);
+        }
+      } catch (err) { console.error("Session init error", err); }
+    };
+    createSession();
+  }, [sessionId]);
+
+  // Initial Greeting & Audio Init
+  useEffect(() => {
+    if (!sessionId) return;
+    if (transcript.length === 0) {
+      sendStreamingMessage(sessionId, '__init__').catch(() => {
+        setTranscript([{ text: "Welcome back, Sarah! Let's capture a new memory. Can you tell me about a favorite family holiday tradition?", isAI: true }]);
+      });
+    }
     audioPipeline.current = new AudioPipeline();
-    audioPipeline.current.onVolumeChange = (vol) => {
-        setVolume(vol);
-        // Do not auto-show waves based on volume alone if not explicitly listening,
-        // but here we only call start() when listening.
-    };
-    audioPipeline.current.onSpeechStart = () => {
-        setSaveStatus('recording');
-        setShowWaves(true);
-    };
+    audioPipeline.current.onSpeechStart = () => setIsListening(true);
     audioPipeline.current.onSpeechEnd = async (blob) => {
-        setShowWaves(false);
-        setSaveStatus('saving');
-        setToastMessage("Processing speech...");
-        await sendAudio(blob);
-        setSaveStatus('saved');
+      setIsListening(false);
+      await sendAudio(blob);
     };
     audioPipeline.current.onError = (err) => {
-        console.error("Audio Pipeline Error:", err);
-        setToastMessage("Audio Error: " + err.message);
-        setIsListening(false);
+      setIsListening(false);
+      setToastMessage("Audio Error");
     };
-
-    return () => {
-      clearTimeout(timer);
-      if (audioPipeline.current) {
-          audioPipeline.current.stop();
-      }
-    };
-  }, []); // Only run once on mount
-
-  // Toast Timer
-  useEffect(() => {
-    if (toastMessage) {
-      const timer = setTimeout(() => setToastMessage(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toastMessage]);
+    return () => { audioPipeline.current?.stop(); };
+  }, [sessionId]);
 
   const sendAudio = async (blob: Blob) => {
-      try {
-          const formData = new FormData();
-          formData.append('file', blob);
-
-          const res = await fetch('/api/chat/speech-to-text', {
-              method: 'POST',
-              body: formData,
-          });
-
-          if (!res.ok) throw new Error("STT failed");
-
-          const data = await res.json();
-          if (data.text) {
-              setTranscript(prev => [...prev, data.text]);
-              // Send text to Chat API to get AI response
-              await handleSendMessageText(data.text);
-          }
-      } catch (e) {
-          console.error("Failed to process audio", e);
-          setToastMessage("Could not understand audio");
+    try {
+      const formData = new FormData();
+      formData.append('file', blob);
+      const res = await fetch('/api/chat/speech-to-text', { method: 'POST', body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.text) {
+          setTranscript(prev => [...prev, { text: data.text, isAI: false }]);
+          await sendStreamingMessage(sessionId!, data.text);
+        }
       }
+    } catch (e) { console.error(e); }
   };
 
   const toggleListening = async () => {
     if (!audioPipeline.current) return;
-
     if (isListening) {
-        audioPipeline.current.stop();
-        setIsListening(false);
-        setShowWaves(false);
+      audioPipeline.current.stop();
+      setIsListening(false);
     } else {
-        await audioPipeline.current.initialize();
-        await audioPipeline.current.start();
-        setIsListening(true);
-        setToastMessage("Listening...");
-    }
-  };
-
-  const handleEndConversation = () => {
-    if (audioPipeline.current) audioPipeline.current.stop();
-    router.push('/dashboard');
-  };
-
-  const handleSendMessageText = async (text: string) => {
-    try {
-        const res = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                sessionId,
-                message: text
-            })
-        });
-
-        if (!res.ok) throw new Error("Failed to send message");
-
-        const data = await res.json();
-        // The API returns { text: string, strategy: string }
-        if (data && data.text) {
-             handleAIResponse(data.text);
-        } else {
-             handleAIResponse("I'm listening...");
-        }
-
-    } catch (e) {
-        console.error(e);
-        setToastMessage("Failed to send message to AI.");
+      await audioPipeline.current.initialize();
+      await audioPipeline.current.start();
+      setIsListening(true);
     }
   };
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) {
-      setToastMessage('Cannot send an empty message.');
-      return;
-    }
-    const messageToSend = inputValue;
-
-    // Optimistic Update
-    setTranscript(prev => [...prev, messageToSend]);
+    if (!inputValue.trim() || !sessionId) return;
+    const text = inputValue;
     setInputValue('');
-    setShowInput(false);
-
-    await handleSendMessageText(messageToSend);
+    setTranscript(prev => [...prev, { text, isAI: false }]);
+    await sendStreamingMessage(sessionId, text);
   };
 
-  const handleShowClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsAnalyzing(true);
-    setToastMessage("Analyzing photo...");
-    setShowWaves(false);
-    if (isListening) toggleListening(); // Pause listening
-
-    const formData = new FormData();
-    formData.append('image', file);
+  const handleEndSession = async () => {
+    if (!sessionId) return;
 
     try {
-        const res = await fetch(`/api/session/${sessionId}/analyze-image`, {
-            method: 'POST',
-            body: formData,
-        });
+      // Stop any audio recording
+      if (audioPipeline.current && isListening) {
+        audioPipeline.current.stop();
+        setIsListening(false);
+      }
 
-        if (!res.ok) throw new Error('Failed to analyze image');
+      // End the session via API
+      const res = await fetch(`/api/sessions/${sessionId}/end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
 
-        const data = await res.json();
-        handleAIResponse(data.text, data.audioBase64);
-        setToastMessage("Photo analyzed!");
-
-    } catch (error) {
-        console.error(error);
-        setToastMessage("Failed to analyze photo.");
-    } finally {
-        setIsAnalyzing(false);
+      if (res.ok) {
+        setToastMessage('Session saved successfully!');
+        setTimeout(() => {
+          router.push('/stories');
+        }, 1500);
+      } else {
+        setToastMessage('Failed to save session. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error ending session:', err);
+      setToastMessage('Error saving session.');
     }
+  };
+
+  const formatTime = () => {
+    return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
   return (
-    <div className="bg-[#2A2320] font-sans text-orange-50 min-h-screen relative overflow-hidden flex flex-col">
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        className="hidden"
-        accept="image/*"
-      />
+    <AuthGuard>
+      <div className="min-h-screen bg-[#FCF8F3] flex flex-col items-center">
+        <Header />
 
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-orange-500 text-white px-6 py-3 rounded-full shadow-lg transition-all animate-fade-in">
-          {toastMessage}
+        {/* Main Card */}
+        <div className="w-full max-w-5xl bg-white rounded-[3rem] shadow-2xl shadow-peach-warm/20 border border-peach-main/10 flex flex-col overflow-hidden animate-fade-in h-[75vh] mt-28">
+
+          {/* Card Static Header / Status */}
+          <div className="h-14 border-b border-peach-main/5 flex items-center justify-center bg-white/50 backdrop-blur-sm z-10 transition-all">
+            <div className="flex items-center gap-2">
+              {(agentState === 'thinking' || streamingResponse) ? (
+                <>
+                  <div className="flex gap-1 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-terracotta"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-peach-warm"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-terracotta"></span>
+                  </div>
+                  <span className="text-sm font-bold text-text-secondary">ReCall is thinking...</span>
+                </>
+              ) : isListening ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-terracotta animate-pulse"></span>
+                  <span className="text-sm font-bold text-terracotta">Listening...</span>
+                </div>
+              ) : (
+                <span className="text-sm font-bold text-peach-warm/60">Ready to chat</span>
+              )}
+            </div>
+          </div>
+
+          {/* Messages Area */}
+          <div className="flex-grow overflow-y-auto p-10 space-y-8 no-scrollbar scroll-smooth">
+            {transcript.map((msg, i) => (
+              <div key={i} className={`flex flex-col ${msg.isAI ? 'items-start' : 'items-end'} animate-fade-in-up`}>
+                <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2 px-1">
+                  Today, {formatTime()}
+                </span>
+                <div className="flex items-end gap-3 max-w-[80%]">
+                  {msg.isAI && (
+                    <div className="w-10 h-10 rounded-full bg-peach-main/30 border border-peach-main/20 flex items-center justify-center flex-shrink-0 text-terracotta mb-2 shadow-sm">
+                      <span className="material-symbols-outlined text-lg filled">mic</span>
+                    </div>
+                  )}
+                  <div className={`
+                    p-6 rounded-[2rem] text-lg font-medium leading-relaxed font-sans shadow-sm
+                    ${msg.isAI
+                      ? 'bg-[#F9F4EE] text-text-primary rounded-bl-none border border-[#F0E6D9]'
+                      : 'bg-[#FDE2D0] text-text-primary rounded-br-none border border-peach-main/30 shadow-peach-warm/10'
+                    }
+                  `}>
+                    {msg.text}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {streamingResponse && (
+              <div className="flex flex-col items-start animate-fade-in">
+                <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2 px-1">
+                  Today, {formatTime()}
+                </span>
+                <div className="flex items-end gap-3 max-w-[80%]">
+                  <div className="w-10 h-10 rounded-full bg-peach-main/30 border border-peach-main/20 flex items-center justify-center flex-shrink-0 text-terracotta mb-2 shadow-sm">
+                    <span className="material-symbols-outlined text-lg filled">mic</span>
+                  </div>
+                  <div className="bg-[#F9F4EE] text-text-primary p-6 rounded-[2rem] rounded-bl-none border border-[#F0E6D9] text-lg font-medium leading-relaxed shadow-sm">
+                    {streamingResponse}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
         </div>
-      )}
 
-      {/* Confirmation Dialog */}
-      {showEndConfirmation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#2A2320] border border-white/10 p-6 rounded-2xl max-w-sm w-full shadow-2xl space-y-4">
-            <h3 className="text-xl font-semibold text-white">End Conversation?</h3>
-            <p className="text-white/70">Are you sure you want to end this conversation? Your progress will be saved.</p>
-            <div className="flex gap-3 pt-2">
+        {/* Centered Controls Overlay */}
+        <div className="w-full max-w-5xl mt-10 px-4">
+          <div className="flex items-center gap-6">
+
+            {/* Large Mic Button with Label */}
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative">
+                <div className={`absolute inset-0 rounded-full bg-terracotta/20 ${isListening ? 'animate-ripple' : ''}`}></div>
+                <button
+                  onClick={toggleListening}
+                  className={`
+                    relative w-24 h-24 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 transform hover:scale-105 active:scale-95 border-4 border-white
+                    ${isListening ? 'bg-terracotta text-white' : 'bg-gradient-to-br from-peach-warm to-terracotta text-white'}
+                  `}
+                >
+                  <span className="material-symbols-outlined text-4xl filled">{isListening ? 'stop' : 'mic'}</span>
+                </button>
+              </div>
+              <span className="text-xs font-bold text-text-secondary uppercase tracking-[0.2em]">{isListening ? 'Stop' : 'Tap to Speak'}</span>
+            </div>
+
+            {/* Input Form Pill */}
+            <div className="flex-1 flex items-center gap-4 bg-white/80 backdrop-blur-xl border border-peach-main/20 rounded-full p-2 shadow-2xl shadow-peach-warm/20 ring-4 ring-peach-main/5 transition-all focus-within:ring-peach-main/20">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                placeholder="Type your story..."
+                className="flex-1 bg-transparent px-8 py-4 text-lg text-text-primary font-medium placeholder:text-text-muted outline-none"
+              />
               <button
-                onClick={() => setShowEndConfirmation(false)}
-                className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-colors font-medium"
+                onClick={handleSendMessage}
+                disabled={!inputValue.trim()}
+                className="group flex items-center gap-2 px-8 py-4 bg-terracotta text-white rounded-full font-bold text-sm shadow-lg shadow-terracotta/30 transition-all hover:bg-sienna active:scale-95 disabled:opacity-30"
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleEndConversation}
-                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors font-medium"
-              >
-                End
+                <span>Send Message</span>
+                <span className="material-symbols-outlined text-lg filled group-hover:translate-x-1 rotate-[-45deg] transition-transform">send</span>
               </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Dynamic Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-orange-500/10 rounded-full blur-[100px] transition-all duration-1000 ${isListening ? 'scale-110 opacity-70' : 'scale-100 opacity-40'}`}></div>
-      </div>
-
-      <header className="relative z-10 px-6 py-6 flex items-center justify-between">
-        <button
-          onClick={() => setShowEndConfirmation(true)}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
-          aria-label="End conversation"
-        >
-          <span className="material-symbols-outlined text-white/70" aria-hidden="true">close</span>
-        </button>
-
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/20">
-          {saveStatus === 'saving' || isAnalyzing ? (
-             <span className="material-symbols-outlined text-orange-500 text-sm animate-spin">progress_activity</span>
-          ) : (
-             <div className={`w-2 h-2 rounded-full bg-orange-500 ${saveStatus === 'recording' ? 'animate-pulse' : ''}`}></div>
-          )}
-          <span className="text-xs font-bold text-orange-500 tracking-wide uppercase">
-            {isAnalyzing ? 'Analyzing...' : saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Recording'}
-          </span>
-        </div>
-
-        <div className="relative">
+          {/* End Session Button */}
           <button
-            onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors"
-            aria-label="Conversation options"
-            aria-expanded={showLanguageMenu}
-            aria-haspopup="true"
+            onClick={handleEndSession}
+            disabled={!sessionId || transcript.length === 0}
+            className="flex flex-col items-center gap-2 px-6 py-4 bg-white/80 border border-peach-main/20 rounded-2xl shadow-lg hover:shadow-xl transition-all hover:bg-peach-light disabled:opacity-30"
           >
-            <span className="material-symbols-outlined text-white/70" aria-hidden="true">more_horiz</span>
+            <span className="material-symbols-outlined text-2xl text-terracotta">stop_circle</span>
+            <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">End & Save</span>
           </button>
-
-          {showLanguageMenu && (
-            <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setShowLanguageMenu(false)}
-              ></div>
-              <div className="absolute right-0 top-full mt-2 w-48 bg-[#3D3430] border border-white/10 rounded-xl shadow-xl overflow-hidden z-20">
-                {LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    onClick={() => {
-                      setSelectedLanguage(lang);
-                      setShowLanguageMenu(false);
-                    }}
-                    className={`w-full text-left px-4 py-3 hover:bg-white/5 flex items-center gap-3 transition-colors ${selectedLanguage.code === lang.code ? 'bg-white/5' : ''}`}
-                  >
-                    <span className="text-lg">{lang.flag}</span>
-                    <span className="text-white/90 text-sm">{lang.name}</span>
-                    {selectedLanguage.code === lang.code && (
-                      <span className="material-symbols-outlined text-orange-500 text-sm ml-auto">check</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 flex flex-col items-center justify-center relative z-10 w-full max-w-lg mx-auto px-6">
-        {/* Visualizer Area */}
-        <div className="flex-1 w-full flex items-center justify-center min-h-[300px]">
-          {isListening ? (
-             <div className="flex items-center gap-1.5 h-24">
-               {/* Use real volume to scale waves */}
-               {[...Array(8)].map((_, i) => (
-                  <div key={i}
-                       className={`w-3 rounded-full bg-gradient-to-t from-[#FF845E] to-[#FF9A7B] transition-all duration-75`}
-                       style={{
-                           height: `${Math.max(10, volume * 100 * (1 + Math.sin(Date.now()/100 + i)))}%`
-                       }}
-                  ></div>
-               ))}
-             </div>
-          ) : (
-             <div className="w-40 h-40 rounded-full bg-white/5 border border-white/5 flex items-center justify-center">
-                <span className="material-symbols-outlined text-5xl text-white/20">graphic_eq</span>
-             </div>
-          )}
         </div>
 
-        {/* Live Transcript / Prompts */}
-        <div className="w-full mb-12 space-y-6">
-           <div className="space-y-4 max-h-[200px] overflow-y-auto no-scrollbar mask-fade-top" role="log" aria-live="polite" aria-relevant="additions text">
-              {transcript.map((text, i) => (
-                 <div key={i} className="text-2xl md:text-3xl font-medium text-center text-white/90 leading-relaxed animate-fade-in">
-                    "{text}"
-                 </div>
-              ))}
-              {transcript.length === 0 && (
-                 <div className="text-center text-white/40 text-lg">Initializing conversation...</div>
-              )}
-           </div>
-        </div>
-
-        {/* Input Area Overlay */}
-        {showInput && (
-           <div className="fixed inset-x-0 bottom-0 bg-[#2A2320] p-6 pb-12 rounded-t-3xl border-t border-white/10 z-30 shadow-2xl animate-slide-up">
-              <div className="max-w-lg mx-auto flex flex-col gap-4">
-                 <div className="flex justify-between items-center">
-                    <h3 className="text-white font-medium">Type your response</h3>
-                    <button onClick={() => setShowInput(false)} className="text-white/50 hover:text-white" aria-label="Close input">
-                       <span className="material-symbols-outlined" aria-hidden="true">close</span>
-                    </button>
-                 </div>
-                 <textarea
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder="Type here..."
-                    className="w-full h-32 bg-white/5 border border-white/10 rounded-xl p-4 text-white placeholder:text-white/30 focus:outline-none focus:border-orange-500/50 resize-none"
-                    autoFocus
-                 />
-                 <button
-                    onClick={handleSendMessage}
-                    className="w-full py-4 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold transition-colors"
-                 >
-                    Send Message
-                 </button>
-              </div>
-           </div>
-        )}
-
-        {/* Controls */}
-        <div className="w-full flex items-center justify-between gap-6 pb-12">
-           <button
-             onClick={() => setShowInput(true)}
-             className="flex-1 h-16 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-             aria-label="Type a message"
-           >
-              <span className="material-symbols-outlined text-white/60" aria-hidden="true">keyboard</span>
-              <span className="font-semibold text-white/60">Type</span>
-           </button>
-
-           <button
-              onClick={toggleListening}
-              className={`h-24 w-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-2xl ${
-                 isListening
-                 ? 'bg-red-500/20 text-red-500 border border-red-500/50 scale-100'
-                 : 'bg-[#FF845E] text-white scale-100 hover:scale-105 shadow-[#FF845E]/40'
-              }`}
-              aria-label={isListening ? "Stop recording" : "Start recording"}
-           >
-              <span className={`material-symbols-outlined text-4xl transition-transform duration-300 ${isListening ? '' : 'filled'}`} aria-hidden="true">
-                 {isListening ? 'stop' : 'mic'}
-              </span>
-           </button>
-
-           <button
-              onClick={handleShowClick}
-              disabled={isAnalyzing}
-              className="flex-1 h-16 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50"
-              aria-label="Show a photo"
-           >
-              <span className="material-symbols-outlined text-white/60" aria-hidden="true">photo_camera</span>
-              <span className="font-semibold text-white/60">Show</span>
-           </button>
-        </div>
-      </main>
-    </div>
+        <Footer />
+      </div>
+    </AuthGuard>
   );
 }

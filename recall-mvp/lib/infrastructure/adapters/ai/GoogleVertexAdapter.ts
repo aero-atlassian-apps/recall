@@ -2,22 +2,34 @@ import { LLMPort } from '../../../core/application/ports/LLMPort';
 import { VertexAI, GenerativeModel, Part } from '@google-cloud/vertexai';
 import { JsonParser } from '../../../core/application/utils/JsonParser';
 
+/**
+ * GoogleVertexAdapter - Production-grade Vertex AI client.
+ * 
+ * Requires Google Cloud authentication and project configuration.
+ * 
+ * Configuration:
+ * - GOOGLE_CLOUD_PROJECT: Required GCP project ID
+ * - GOOGLE_CLOUD_LOCATION: Region (default: us-central1)
+ * 
+ * @module GoogleVertexAdapter
+ */
 export class GoogleVertexAdapter implements LLMPort {
     private vertexAI: VertexAI;
     private model: GenerativeModel;
     private visionModel: GenerativeModel;
 
     constructor() {
-        const project = process.env.GOOGLE_CLOUD_PROJECT || 'recall-hackathon';
+        const project = process.env.GOOGLE_CLOUD_PROJECT;
         const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
-        this.vertexAI = new VertexAI({
-            project,
-            location,
-        });
+        if (!project) {
+            throw new Error('GoogleVertexAdapter: GOOGLE_CLOUD_PROJECT is required');
+        }
+
+        this.vertexAI = new VertexAI({ project, location });
 
         this.model = this.vertexAI.getGenerativeModel({
-            model: 'gemini-1.5-pro-001',
+            model: 'gemini-2.0-flash-lite-preview-02-05',
             generationConfig: {
                 maxOutputTokens: 8192,
                 temperature: 0.7,
@@ -25,13 +37,13 @@ export class GoogleVertexAdapter implements LLMPort {
         });
 
         this.visionModel = this.vertexAI.getGenerativeModel({
-            model: 'gemini-1.5-pro-001',
+            model: 'gemini-2.0-flash-lite-preview-02-05',
         });
     }
 
     private getModel(modelId?: string): GenerativeModel {
         return this.vertexAI.getGenerativeModel({
-            model: modelId || 'gemini-1.5-pro-001',
+            model: modelId || 'gemini-2.0-flash-lite-preview-02-05',
             generationConfig: {
                 maxOutputTokens: 8192,
                 temperature: 0.7,
@@ -39,13 +51,11 @@ export class GoogleVertexAdapter implements LLMPort {
         });
     }
 
-    async generateText(prompt: string, options?: { model?: string; maxTokens?: number; temperature?: number }): Promise<string> {
+    async generateText(
+        prompt: string,
+        options?: { model?: string; maxTokens?: number; temperature?: number }
+    ): Promise<string> {
         try {
-            if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.CI) {
-                console.warn("GoogleVertexAdapter: No GOOGLE_CLOUD_PROJECT set. Returning mock response.");
-                return "Mock Text Response (Set GOOGLE_CLOUD_PROJECT to enable)";
-            }
-
             const model = this.getModel(options?.model);
             const result = await model.generateContent({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -61,10 +71,13 @@ export class GoogleVertexAdapter implements LLMPort {
         }
     }
 
-    async generateJson<T>(prompt: string, schema?: any, options?: { model?: string; maxTokens?: number; temperature?: number }): Promise<T> {
-        // Use JSON mode if model supports it (Gemini 1.5 Pro does)
+    async generateJson<T>(
+        prompt: string,
+        schema?: any,
+        options?: { model?: string; maxTokens?: number; temperature?: number }
+    ): Promise<T> {
         const jsonModel = this.vertexAI.getGenerativeModel({
-            model: options?.model || 'gemini-1.5-pro-001',
+            model: options?.model || 'gemini-2.0-flash-lite-preview-02-05',
             generationConfig: {
                 responseMimeType: "application/json",
                 maxOutputTokens: options?.maxTokens || 8192,
@@ -72,33 +85,35 @@ export class GoogleVertexAdapter implements LLMPort {
             }
         });
 
-
         try {
             const result = await jsonModel.generateContent({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }]
             });
 
             const text = result.response.candidates?.[0].content.parts[0].text || "{}";
-            // Even in JSON mode, we might get unexpected wrapping
             return JsonParser.parse<T>(text);
         } catch (e) {
-            console.warn("GoogleVertexAdapter: JSON mode failed or parsing error", e);
-            // Fallback: Force text mode with explicit instruction
+            console.warn("GoogleVertexAdapter: JSON mode failed, trying text fallback", e);
             const text = await this.generateText(`${prompt}\n\nOutput strictly valid JSON.`, options);
             try {
                 return JsonParser.parse<T>(text);
             } catch (parseError) {
-                console.error("GoogleVertexAdapter: Failed to parse JSON", text);
-                throw new Error("Failed to parse JSON from LLM: " + text.substring(0, 100));
+                console.error("GoogleVertexAdapter: Failed to parse JSON", text.substring(0, 200));
+                throw new Error("Failed to parse JSON from LLM response");
             }
         }
     }
 
-    async analyzeImage(imageBase64: string, mimeType: string, prompt: string, options?: { model?: string }): Promise<string> {
-        if (!process.env.GOOGLE_CLOUD_PROJECT && !process.env.CI) return "Mock Image Analysis";
-
+    async analyzeImage(
+        imageBase64: string,
+        mimeType: string,
+        prompt: string,
+        options?: { model?: string }
+    ): Promise<string> {
         try {
-            const imagePart: Part = { inlineData: { data: imageBase64, mimeType: mimeType } };
+            const imagePart: Part = {
+                inlineData: { data: imageBase64, mimeType: mimeType }
+            };
             const model = this.getModel(options?.model);
             const result = await model.generateContent({
                 contents: [{ role: 'user', parts: [{ text: prompt }, imagePart] }]

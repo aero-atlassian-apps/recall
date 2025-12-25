@@ -37,6 +37,7 @@ import { GenerateChapterUseCase } from '../../core/application/use-cases/Generat
 import { GetChaptersUseCase } from '../../core/application/use-cases/GetChaptersUseCase';
 import { AnalyzeSessionImageUseCase } from '../../core/application/use-cases/AnalyzeSessionImageUseCase';
 import { ExportBookUseCase } from '../../core/application/use-cases/ExportBookUseCase';
+import { StreamingProcessMessageUseCase } from '../../core/application/use-cases/StreamingProcessMessageUseCase';
 
 import { AIServicePort } from '../../core/application/ports/AIServicePort';
 import { LLMPort } from '../../core/application/ports/LLMPort';
@@ -57,14 +58,27 @@ const isHuggingFace = process.env.SPEECH_PROVIDER === 'huggingface';
 // Always instantiate HuggingFaceAdapter as a potential fallback or primary
 const hfAdapter = new HuggingFaceAdapter();
 
-export const speechProvider = isHuggingFace
-    ? hfAdapter
-    : new ElevenLabsAdapter(hfAdapter); // Inject fallback STT provider
+function selectSpeechProvider() {
+    if (isHuggingFace) {
+        return hfAdapter;
+    }
+    try {
+        return new ElevenLabsAdapter(hfAdapter);
+    } catch (e: any) {
+        console.warn('[DI] ElevenLabsAdapter failed:', e.message);
+        console.log('[DI] Falling back to HuggingFaceAdapter for speech');
+        return hfAdapter;
+    }
+}
+
+export const speechProvider = selectSpeechProvider();
 
 // --- LLM PROVIDER SELECTION ---
+console.log('[DI] Container re-evaluating providers...');
 // Priority: explicit LLM_PROVIDER > USE_MOCKS > auto-detect based on available keys
 import { GoogleAIStudioAdapter } from '../adapters/ai/GoogleAIStudioAdapter';
 import { HuggingFaceLLMAdapter } from '../adapters/ai/HuggingFaceLLMAdapter';
+import { getLLMGateway, LLMGateway } from '../adapters/ai/LLMGateway';
 
 function selectLLMProvider() {
     // Explicit mock mode
@@ -76,39 +90,74 @@ function selectLLMProvider() {
     // Explicit provider selection
     switch (llmProvider_env) {
         case 'huggingface':
-            console.log('[DI] Using HuggingFaceLLMAdapter (FREE - Mistral/Llama)');
-            return new HuggingFaceLLMAdapter();
+            try {
+                console.log('[DI] Attempting HuggingFaceLLMAdapter...');
+                return new HuggingFaceLLMAdapter();
+            } catch (e: any) {
+                console.warn('[DI] HuggingFaceLLMAdapter failed:', e.message);
+                console.log('[DI] Falling back to MockLLM');
+                return new MockLLM();
+            }
         case 'google_ai':
-            console.log('[DI] Using GoogleAIStudioAdapter (FREE Gemini API)');
-            return new GoogleAIStudioAdapter();
+            try {
+                console.log('[DI] Attempting GoogleAIStudioAdapter...');
+                return new GoogleAIStudioAdapter();
+            } catch (e: any) {
+                console.warn('[DI] GoogleAIStudioAdapter failed:', e.message);
+                console.log('[DI] Falling back to MockLLM');
+                return new MockLLM();
+            }
         case 'vertex':
-            console.log('[DI] Using GoogleVertexAdapter (requires GCP billing)');
-            return new GoogleVertexAdapter();
+            try {
+                console.log('[DI] Attempting GoogleVertexAdapter...');
+                return new GoogleVertexAdapter();
+            } catch (e: any) {
+                console.warn('[DI] GoogleVertexAdapter failed:', e.message);
+                console.log('[DI] Falling back to MockLLM');
+                return new MockLLM();
+            }
         case 'mock':
             console.log('[DI] Using MockLLM');
             return new MockLLM();
         case 'auto':
         default:
-            // Auto-detect: prefer free options
+            // Auto-detect: try adapters in order of preference
             if (process.env.GOOGLE_AI_API_KEY) {
-                console.log('[DI] Auto-selected GoogleAIStudioAdapter (GOOGLE_AI_API_KEY found)');
-                return new GoogleAIStudioAdapter();
+                try {
+                    console.log('[DI] Auto-selected GoogleAIStudioAdapter (GOOGLE_AI_API_KEY found)');
+                    return new GoogleAIStudioAdapter();
+                } catch (e: any) {
+                    console.warn('[DI] GoogleAIStudioAdapter construction failed:', e.message);
+                }
             }
             if (process.env.HUGGINGFACE_API_KEY) {
-                console.log('[DI] Auto-selected HuggingFaceLLMAdapter (HUGGINGFACE_API_KEY found)');
-                return new HuggingFaceLLMAdapter();
+                try {
+                    console.log('[DI] Auto-selected HuggingFaceLLMAdapter (HUGGINGFACE_API_KEY found)');
+                    return new HuggingFaceLLMAdapter();
+                } catch (e: any) {
+                    console.warn('[DI] HuggingFaceLLMAdapter construction failed:', e.message);
+                }
             }
             if (process.env.GOOGLE_CLOUD_PROJECT) {
-                console.log('[DI] Auto-selected GoogleVertexAdapter (GOOGLE_CLOUD_PROJECT found)');
-                return new GoogleVertexAdapter();
+                try {
+                    console.log('[DI] Auto-selected GoogleVertexAdapter (GOOGLE_CLOUD_PROJECT found)');
+                    return new GoogleVertexAdapter();
+                } catch (e: any) {
+                    console.warn('[DI] GoogleVertexAdapter construction failed:', e.message);
+                }
             }
             // Fallback to mock
-            console.log('[DI] No LLM API keys found, using MockLLM. Set HUGGINGFACE_API_KEY for free LLM access.');
+            console.log('[DI] No LLM API keys found or all adapters failed, using MockLLM.');
             return new MockLLM();
     }
 }
 
 export const llmProvider = selectLLMProvider();
+
+// LLM Gateway - Wraps llmProvider with rate limiting, queuing, and circuit breaker
+// Use llmGateway for production code that needs throughput control
+export const llmGateway: LLMGateway = getLLMGateway(llmProvider);
+
 
 export const embeddingProvider = new GoogleEmbeddingAdapter(process.env.GOOGLE_PROJECT_ID || 'mock-project');
 
@@ -245,5 +294,14 @@ export const analyzeSessionImageUseCase = new AnalyzeSessionImageUseCase(
 
 export const exportBookUseCase = new ExportBookUseCase(chapterRepository, pdfService);
 
-export const endSessionUseCase = new EndSessionUseCase(sessionRepository, jobRepository);
+export const endSessionUseCase = new EndSessionUseCase(sessionRepository, jobRepository, generateChapterUseCase);
 export const getChaptersUseCase = new GetChaptersUseCase(chapterRepository);
+
+export const streamingProcessMessageUseCase = new StreamingProcessMessageUseCase(
+    sessionRepository,
+    userRepository,
+    llmProvider,
+    vectorStore,
+    contentSafetyGuard
+);
+

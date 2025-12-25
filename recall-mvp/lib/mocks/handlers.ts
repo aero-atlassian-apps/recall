@@ -55,7 +55,7 @@ export const handlers = [
   }),
 
   // Get all chapters for user
-  http.get('/api/chapters/:userId', ({params}) => {
+  http.get('/api/users/:userId/chapters', ({ params }) => {
     return HttpResponse.json(mockChapters);
   }),
 

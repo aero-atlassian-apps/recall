@@ -32,25 +32,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
-
     // ============================================
-    // INPUT VALIDATION
+    // GET USER ID FROM MIDDLEWARE (injected by auth)
     // ============================================
-    const userValidation = validateUserId(body.userId);
-    if (!userValidation.valid) {
-      logger.warn('Invalid userId for session start', { traceId, error: userValidation.error });
-      recordHttpRequest('POST', '/api/sessions/start', 400, Date.now() - startTime);
-      return NextResponse.json({ error: userValidation.error }, { status: 400 });
+    const headerUserId = req.headers.get('x-user-id');
+    if (!headerUserId) {
+      logger.warn('No user ID in request headers', { traceId });
+      recordHttpRequest('POST', '/api/sessions/start', 401, Date.now() - startTime);
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { userId } = body;
+    // Generate a deterministic UUID from non-UUID user IDs (for dev/test users)
+    // In production, user IDs should already be UUIDs
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let userId = headerUserId;
+    if (!uuidPattern.test(headerUserId)) {
+      // Generate deterministic UUID v5 from the non-UUID user ID
+      // Using a simple hash-based approach for dev purposes
+      const crypto = await import('crypto');
+      userId = crypto.createHash('md5').update(headerUserId).digest('hex');
+      userId = `${userId.slice(0, 8)}-${userId.slice(8, 12)}-${userId.slice(12, 16)}-${userId.slice(16, 20)}-${userId.slice(20, 32)}`;
+    }
 
     // ============================================
     // IDEMPOTENCY
     // ============================================
     const idempotencyKey = extractIdempotencyKey(req.headers);
-    const fingerprint = createRequestFingerprint(body, userId);
+    const fingerprint = createRequestFingerprint({ userId }, userId);
 
     const result = await withIdempotency(
       idempotencyKey,

@@ -105,7 +105,7 @@ const DEFAULT_CONFIG: EnhancedPlannerConfig = {
     estimateCosts: true,
     defaultStepTimeoutMs: 10000,
     defaultMaxRetries: 2,
-    plannerModel: 'gemini-1.5-pro',
+    plannerModel: 'gemini-2.0-flash-lite-preview-02-05',
 };
 
 // ============================================================================

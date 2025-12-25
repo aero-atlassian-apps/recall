@@ -5,7 +5,8 @@ FROM node:20-alpine AS base
 FROM base AS deps
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 # libc6-compat is often needed for process.dlopen, which some native modules might use.
-RUN apk add --no-cache libc6-compat python3 make g++
+# FFmpeg is required by AudioConverter service to convert WebM/Opus → WAV for STT APIs
+RUN apk add --no-cache libc6-compat python3 make g++ ffmpeg
 WORKDIR /app
 
 # Copy package files

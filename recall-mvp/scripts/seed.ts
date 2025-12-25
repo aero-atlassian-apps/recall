@@ -1,88 +1,148 @@
-import { db } from '../lib/infrastructure/adapters/db';
+/**
+ * Database Seed Script
+ * Seeds demo users and sample chapters for local development
+ */
+
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import { users, sessions, chapters } from '../lib/infrastructure/adapters/db/schema';
-import { randomUUID } from 'crypto';
+
+const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/recall_mvp';
 
 async function seed() {
-  console.log('🌱 Seeding database...');
+    console.log('🌱 Starting database seed...');
 
-  try {
-    // 1. Create a Test Senior User
-    // Postgres UUID must be a valid UUID. 'test-senior-id' is not a valid UUID.
-    const seniorId = '00000000-0000-0000-0000-000000000001';
-    await db.insert(users).values({
-      id: seniorId,
-      email: 'senior@example.com',
-      name: 'Grandpa Joe',
-      role: 'senior',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      preferences: {
-        topicsLove: ['Fishing', 'Jazz'],
-        topicsAvoid: ['Politics'],
-        timezone: 'UTC'
-      }
-    }).onConflictDoNothing();
+    const client = postgres(DATABASE_URL);
+    const db = drizzle(client);
 
-    console.log('✅ Created Senior User: senior@example.com');
+    try {
+        // Create demo Senior user
+        const [seniorUser] = await db.insert(users).values({
+            id: '00000000-0000-0000-0000-000000000001',
+            name: 'Arthur',
+            email: 'arthur@recall.dev',
+            role: 'senior',
+            phoneNumber: '+1234567890',
+            preferences: {
+                voiceTone: 'Warm',
+                topicsLove: ['Childhood', 'Family vacations', 'Career milestones'],
+                topicsAvoid: ['Politics', 'Health concerns'],
+                timezone: 'America/New_York'
+            }
+        }).onConflictDoNothing().returning();
 
-    // 2. Create a Test Family User
-    const familyId = '00000000-0000-0000-0000-000000000002';
-    await db.insert(users).values({
-      id: familyId,
-      email: 'family@example.com',
-      name: 'Sally Granddaughter',
-      role: 'family',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }).onConflictDoNothing();
+        console.log('✅ Created senior user:', seniorUser?.name || 'Already exists');
 
-    console.log('✅ Created Family User: family@example.com');
+        // Create demo Family user
+        const [familyUser] = await db.insert(users).values({
+            id: '00000000-0000-0000-0000-000000000002',
+            name: 'Emma',
+            email: 'emma@recall.dev',
+            role: 'family',
+            seniorId: '00000000-0000-0000-0000-000000000001',
+            phoneNumber: '+1234567891',
+            preferences: {
+                timezone: 'America/New_York'
+            }
+        }).onConflictDoNothing().returning();
 
-    // 3. Create a Session
-    const sessionId = randomUUID();
-    await db.insert(sessions).values({
-      id: sessionId,
-      userId: seniorId,
-      status: 'completed',
-      startedAt: new Date(Date.now() - 86400000), // Yesterday
-      endedAt: new Date(),
-      transcriptRaw: JSON.stringify([
-        { role: 'agent', content: 'Hello Joe, tell me about your first fishing trip.', timestamp: Date.now() - 86400000 },
-        { role: 'user', content: 'Well, it was 1955, and my dad took me to the lake...', timestamp: Date.now() - 86300000 }
-      ]),
-      metadata: {
-        // goal and durationSeconds are not in the schema definition for metadata
-        // The schema only defines: strategy_usage, avg_response_length, sentiment_distribution
-        strategy_usage: { "initial_greeting": 1 },
-        avg_response_length: 50
-      }
-    }).onConflictDoNothing();
+        console.log('✅ Created family user:', familyUser?.name || 'Already exists');
 
-    console.log('✅ Created Session');
+        // Create demo session
+        const [demoSession] = await db.insert(sessions).values({
+            id: '00000000-0000-0000-0000-000000000010',
+            userId: '00000000-0000-0000-0000-000000000001',
+            status: 'completed',
+            duration: 1200,
+            startedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+            endedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000 + 1200000),
+            transcriptRaw: JSON.stringify([
+                { role: 'assistant', content: 'Tell me about your favorite holiday tradition.' },
+                { role: 'user', content: 'Every Christmas Eve, our family would gather around the fireplace...' }
+            ])
+        }).onConflictDoNothing().returning();
 
-    // 4. Create a Chapter
-    await db.insert(chapters).values({
-      id: randomUUID(),
-      sessionId: sessionId,
-      userId: seniorId,
-      title: 'The First Catch',
-      content: 'It was a sunny morning in 1955 when Joe made his first catch...',
-      excerpt: 'Joe made his first catch in 1955.',
-      createdAt: new Date(),
-      entities: [
-        { type: 'topic', name: 'Nature', mentions: 1 },
-        { type: 'place', name: 'The Lake', mentions: 1 }
-      ]
-    }).onConflictDoNothing();
+        console.log('✅ Created demo session:', demoSession?.id || 'Already exists');
 
-    console.log('✅ Created Chapter');
+        // Create demo chapters/stories
+        const demoChapters = [
+            {
+                id: '00000000-0000-0000-0000-000000000100',
+                sessionId: '00000000-0000-0000-0000-000000000010',
+                userId: '00000000-0000-0000-0000-000000000001',
+                title: 'Christmas Eve Traditions',
+                content: `Every Christmas Eve, our family would gather around the fireplace in my grandparents' old farmhouse. The smell of pine needles mixed with grandma's famous apple cider created an atmosphere I can still recall vividly today.\n\nMy grandfather would always wait until the clock struck seven before he'd ceremoniously light the Yule log. "It's not Christmas until the log burns," he'd say with a twinkle in his eye.\n\nThe children—my siblings, cousins, and I—would huddle together on the worn carpet, close enough to feel the fire's warmth on our faces. Grandma would bring out her ancient copy of "A Christmas Carol" and grandpa would read by candlelight, his deep voice bringing Scrooge and Tiny Tim to life.`,
+                excerpt: 'Every Christmas Eve, our family would gather around the fireplace in my grandparents old farmhouse...',
+                entities: [
+                    { type: 'person', name: 'Grandfather', mentions: 2 },
+                    { type: 'person', name: 'Grandmother', mentions: 2 },
+                    { type: 'topic', name: 'Christmas', mentions: 4 },
+                    { type: 'place', name: 'Farmhouse', mentions: 1 }
+                ],
+                metadata: {
+                    sessionNumber: 1,
+                    wordCount: 150,
+                    emotionalTone: 'nostalgic',
+                    lifePeriod: 'childhood'
+                }
+            },
+            {
+                id: '00000000-0000-0000-0000-000000000101',
+                sessionId: '00000000-0000-0000-0000-000000000010',
+                userId: '00000000-0000-0000-0000-000000000001',
+                title: 'Summer at the Lake House',
+                content: `The summer of 1965 was special. Our family rented a small cabin by Lake Michigan for the entire month of July. It was the first real vacation I remember—and perhaps the most formative.\n\nEvery morning, my father and I would wake before dawn to go fishing. The mist would hang low over the water, and we'd sit in companionable silence, waiting for the fish to bite. Those quiet moments taught me patience and the value of simply being present.\n\nAfternoons were for swimming and exploring the woods behind the cabin. My sister and I built a secret fort from fallen branches, convinced we were the first to discover that spot.`,
+                excerpt: 'The summer of 1965 was special. Our family rented a small cabin by Lake Michigan...',
+                entities: [
+                    { type: 'person', name: 'Father', mentions: 1 },
+                    { type: 'person', name: 'Sister', mentions: 1 },
+                    { type: 'place', name: 'Lake Michigan', mentions: 1 },
+                    { type: 'topic', name: 'Fishing', mentions: 1 }
+                ],
+                metadata: {
+                    sessionNumber: 2,
+                    wordCount: 140,
+                    emotionalTone: 'joyful',
+                    lifePeriod: 'childhood'
+                }
+            },
+            {
+                id: '00000000-0000-0000-0000-000000000102',
+                sessionId: '00000000-0000-0000-0000-000000000010',
+                userId: '00000000-0000-0000-0000-000000000001',
+                title: 'First Day at the Factory',
+                content: `I was eighteen when I walked through those heavy iron gates for the first time. The Ford assembly plant loomed before me, a cathedral of industry that would shape the next forty years of my life.\n\nThe foreman, a grizzled man named Joe Kowalski, took one look at my eager face and shook his head. "You'll learn," he said. And learn I did—about work, about life, about what it means to be part of something bigger than yourself.\n\nThat first day, I made three mistakes that I remember to this day. But Mr. Kowalski never raised his voice. He just showed me the right way, again and again, until I got it.`,
+                excerpt: 'I was eighteen when I walked through those heavy iron gates for the first time...',
+                entities: [
+                    { type: 'person', name: 'Joe Kowalski', mentions: 2 },
+                    { type: 'place', name: 'Ford Plant', mentions: 1 },
+                    { type: 'topic', name: 'Career', mentions: 1 }
+                ],
+                metadata: {
+                    sessionNumber: 3,
+                    wordCount: 135,
+                    emotionalTone: 'reflective',
+                    lifePeriod: 'young adult'
+                }
+            }
+        ];
 
-    console.log('🎉 Seeding complete!');
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ Seeding failed:', error);
-    process.exit(1);
-  }
+        for (const chapter of demoChapters) {
+            await db.insert(chapters).values(chapter).onConflictDoNothing();
+        }
+
+        console.log('✅ Created', demoChapters.length, 'demo chapters');
+        console.log('🎉 Database seeding complete!');
+
+    } catch (error) {
+        console.error('❌ Seed error:', error);
+        throw error;
+    } finally {
+        await client.end();
+    }
 }
 
-seed();
+seed().catch((err) => {
+    console.error('Failed to seed database:', err);
+    process.exit(1);
+});

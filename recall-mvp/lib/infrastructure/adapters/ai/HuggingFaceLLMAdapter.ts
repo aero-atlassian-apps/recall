@@ -8,6 +8,10 @@
  * 
  * Free tier: Unlimited with rate limiting
  * 
+ * Configuration:
+ * - HUGGINGFACE_API_KEY: Required API key
+ * - LLM_RETRY_MAX_ATTEMPTS: Max retry attempts (default: 3)
+ * 
  * @module HuggingFaceLLMAdapter
  */
 
@@ -20,79 +24,88 @@ interface HFResponse {
 
 export class HuggingFaceLLMAdapter implements LLMPort {
     private apiKey: string;
-    private baseUrl = 'https://api-inference.huggingface.co/models';
-    // Default to Mistral - good balance of quality and speed
+    private baseUrl = 'https://router.huggingface.co/hf-inference/models';
     private defaultModel = 'mistralai/Mistral-7B-Instruct-v0.2';
+    private maxRetries: number;
 
     constructor() {
         this.apiKey = process.env.HUGGINGFACE_API_KEY || '';
+        this.maxRetries = parseInt(process.env.LLM_RETRY_MAX_ATTEMPTS || '3', 10);
+
         if (!this.apiKey) {
-            console.warn('[HuggingFaceLLMAdapter] No HUGGINGFACE_API_KEY set');
+            throw new Error('HuggingFaceLLMAdapter: HUGGINGFACE_API_KEY is required');
         }
     }
 
     private async callHuggingFace(prompt: string, model?: string): Promise<string> {
         const modelId = model || this.defaultModel;
         const url = `${this.baseUrl}/${modelId}`;
-
-        // Format prompt for instruction-tuned models
         const formattedPrompt = this.formatPrompt(prompt, modelId);
 
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    inputs: formattedPrompt,
-                    parameters: {
-                        max_new_tokens: 2048,
-                        temperature: 0.7,
-                        return_full_text: false,
-                        do_sample: true,
+        let lastError: Error | null = null;
+
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'Content-Type': 'application/json',
                     },
-                    options: {
-                        wait_for_model: true,
-                    }
-                }),
-            });
+                    body: JSON.stringify({
+                        inputs: formattedPrompt,
+                        parameters: {
+                            max_new_tokens: 2048,
+                            temperature: 0.7,
+                            return_full_text: false,
+                            do_sample: true,
+                        },
+                        options: {
+                            wait_for_model: true,
+                        }
+                    }),
+                });
 
-            if (!response.ok) {
-                const error = await response.text();
-                // Handle model loading (503)
                 if (response.status === 503) {
-                    console.log('[HuggingFaceLLMAdapter] Model is loading, waiting...');
-                    await new Promise(resolve => setTimeout(resolve, 20000));
-                    return this.callHuggingFace(prompt, model);
+                    // Model is loading - retry with backoff
+                    if (attempt < this.maxRetries) {
+                        const delayMs = 5000 * attempt; // 5s, 10s, 15s
+                        console.log(`[HuggingFaceLLMAdapter] Model loading (attempt ${attempt}/${this.maxRetries}). Retrying in ${delayMs / 1000}s...`);
+                        await new Promise(resolve => setTimeout(resolve, delayMs));
+                        continue;
+                    }
+                    throw new Error('HuggingFace API: Model unavailable after retries');
                 }
-                throw new Error(`HuggingFace API error: ${response.status} - ${error}`);
-            }
 
-            const data: HFResponse | HFResponse[] = await response.json();
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(`HuggingFace API error: ${response.status} - ${error}`);
+                }
 
-            // Handle array response
-            if (Array.isArray(data)) {
-                return data[0]?.generated_text || '';
+                const data: HFResponse | HFResponse[] = await response.json();
+
+                if (Array.isArray(data)) {
+                    return data[0]?.generated_text || '';
+                }
+                return data.generated_text || '';
+            } catch (e: any) {
+                lastError = e;
+                if (attempt === this.maxRetries) {
+                    throw e;
+                }
             }
-            return data.generated_text || '';
-        } catch (e) {
-            console.error('[HuggingFaceLLMAdapter] API call failed:', e);
-            throw e;
         }
+
+        throw lastError;
     }
 
     private formatPrompt(prompt: string, model: string): string {
-        // Format for Mistral
         if (model.includes('Mistral')) {
             return `<s>[INST] ${prompt} [/INST]`;
         }
-        // Format for Llama
         if (model.includes('Llama') || model.includes('llama')) {
             return `<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n${prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n`;
         }
-        // Default
         return prompt;
     }
 
@@ -100,10 +113,6 @@ export class HuggingFaceLLMAdapter implements LLMPort {
         prompt: string,
         options?: { model?: string; maxTokens?: number; temperature?: number }
     ): Promise<string> {
-        if (!this.apiKey) {
-            console.warn('[HuggingFaceLLMAdapter] No API key, returning mock response');
-            return 'Mock response - Set HUGGINGFACE_API_KEY for real LLM responses';
-        }
         return this.callHuggingFace(prompt, options?.model);
     }
 
@@ -112,11 +121,6 @@ export class HuggingFaceLLMAdapter implements LLMPort {
         _schema?: any,
         options?: { model?: string; maxTokens?: number; temperature?: number }
     ): Promise<T> {
-        if (!this.apiKey) {
-            console.warn('[HuggingFaceLLMAdapter] No API key, returning mock JSON');
-            return {} as T;
-        }
-
         const jsonPrompt = `${prompt}
 
 IMPORTANT: Respond with ONLY valid JSON. No explanations, no markdown. Just the JSON object.`;
@@ -124,17 +128,14 @@ IMPORTANT: Respond with ONLY valid JSON. No explanations, no markdown. Just the 
         const text = await this.callHuggingFace(jsonPrompt, options?.model);
 
         try {
-            // Try to extract JSON from the response
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 return JSON.parse(jsonMatch[0]) as T;
             }
-            // Try parsing as-is
             return JSON.parse(text.trim()) as T;
         } catch (e) {
-            console.error('[HuggingFaceLLMAdapter] Failed to parse JSON:', text);
-            // Return empty object as fallback
-            return {} as T;
+            console.error('[HuggingFaceLLMAdapter] Failed to parse JSON:', text.substring(0, 200));
+            throw new Error('Failed to parse JSON from LLM response');
         }
     }
 
@@ -144,9 +145,7 @@ IMPORTANT: Respond with ONLY valid JSON. No explanations, no markdown. Just the 
         _prompt: string,
         _options?: { model?: string }
     ): Promise<string> {
-        // HuggingFace free tier doesn't support vision well
-        // Return a helpful message
-        console.warn('[HuggingFaceLLMAdapter] Image analysis not supported. Use Google AI Studio for vision.');
-        return 'Image analysis requires Google AI Studio. Set GOOGLE_AI_API_KEY for vision features.';
+        // HuggingFace free tier doesn't support vision
+        throw new Error('HuggingFaceLLMAdapter: Image analysis not supported. Use GoogleAIStudioAdapter for vision features.');
     }
 }

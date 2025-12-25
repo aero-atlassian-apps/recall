@@ -136,11 +136,11 @@ export interface UsageTracker {
  */
 export const DEFAULT_MODELS: ModelConfig[] = [
     {
-        id: 'gemini-1.5-flash-001',
-        name: 'Gemini 1.5 Flash',
+        id: 'gemini-2.5-flash-lite',
+        name: 'Gemini 2.5 Flash-Lite',
         provider: 'google',
         tier: ModelTier.FLASH,
-        costPer1KInputTokens: 0.0375,
+        costPer1KInputTokens: 0.05,
         costPer1KOutputTokens: 0.15,
         maxContextTokens: 1000000,
         maxOutputTokens: 8192,
@@ -151,68 +151,8 @@ export const DEFAULT_MODELS: ModelConfig[] = [
             TaskComplexity.EXTRACTION,
             TaskComplexity.FORMATTING,
             TaskComplexity.SUMMARIZATION,
-        ],
-        qualityScores: {
-            [TaskComplexity.CLASSIFICATION]: 0.85,
-            [TaskComplexity.EXTRACTION]: 0.80,
-            [TaskComplexity.FORMATTING]: 0.90,
-            [TaskComplexity.SUMMARIZATION]: 0.75,
-            [TaskComplexity.REASONING]: 0.60,
-            [TaskComplexity.CREATIVE]: 0.65,
-        },
-        available: true,
-        rateLimitRPM: 1000,
-    },
-    {
-        id: 'gemini-1.5-pro-001',
-        name: 'Gemini 1.5 Pro',
-        provider: 'google',
-        tier: ModelTier.PRO,
-        costPer1KInputTokens: 0.125,
-        costPer1KOutputTokens: 0.375,
-        maxContextTokens: 2000000,
-        maxOutputTokens: 8192,
-        latencyP50Ms: 1000,
-        latencyP95Ms: 3000,
-        capabilities: [
-            TaskComplexity.CLASSIFICATION,
-            TaskComplexity.EXTRACTION,
             TaskComplexity.REASONING,
             TaskComplexity.CREATIVE,
-            TaskComplexity.SAFETY_CRITICAL,
-            TaskComplexity.SUMMARIZATION,
-            TaskComplexity.CODE,
-        ],
-        qualityScores: {
-            [TaskComplexity.CLASSIFICATION]: 0.95,
-            [TaskComplexity.EXTRACTION]: 0.92,
-            [TaskComplexity.FORMATTING]: 0.95,
-            [TaskComplexity.SUMMARIZATION]: 0.90,
-            [TaskComplexity.REASONING]: 0.90,
-            [TaskComplexity.CREATIVE]: 0.88,
-            [TaskComplexity.SAFETY_CRITICAL]: 0.95,
-            [TaskComplexity.CODE]: 0.85,
-        },
-        available: true,
-        rateLimitRPM: 360,
-    },
-    {
-        id: 'gemini-2.0-flash-exp',
-        name: 'Gemini 2.0 Flash (Experimental)',
-        provider: 'google',
-        tier: ModelTier.STANDARD,
-        costPer1KInputTokens: 0.05,
-        costPer1KOutputTokens: 0.15,
-        maxContextTokens: 1000000,
-        maxOutputTokens: 8192,
-        latencyP50Ms: 600,
-        latencyP95Ms: 1800,
-        capabilities: [
-            TaskComplexity.CLASSIFICATION,
-            TaskComplexity.EXTRACTION,
-            TaskComplexity.REASONING,
-            TaskComplexity.CREATIVE,
-            TaskComplexity.SUMMARIZATION,
         ],
         qualityScores: {
             [TaskComplexity.CLASSIFICATION]: 0.90,
@@ -223,8 +163,54 @@ export const DEFAULT_MODELS: ModelConfig[] = [
             [TaskComplexity.CREATIVE]: 0.80,
         },
         available: true,
-        rateLimitRPM: 500,
+        rateLimitRPM: 30, // hopeful higher limit for lite
     },
+    {
+        id: 'gemini-2.0-flash-lite-preview-02-05',
+        name: 'Gemini 2.0 Flash-Lite (Preview)',
+        provider: 'google',
+        tier: ModelTier.FLASH,
+        costPer1KInputTokens: 0.05,
+        costPer1KOutputTokens: 0.15,
+        maxContextTokens: 1000000,
+        maxOutputTokens: 8192,
+        latencyP50Ms: 400,
+        latencyP95Ms: 1200,
+        capabilities: [
+            TaskComplexity.CLASSIFICATION,
+            TaskComplexity.EXTRACTION,
+            TaskComplexity.FORMATTING,
+        ],
+        qualityScores: {
+            [TaskComplexity.CLASSIFICATION]: 0.85,
+            [TaskComplexity.EXTRACTION]: 0.80,
+            [TaskComplexity.FORMATTING]: 0.90,
+        },
+        available: true,
+        rateLimitRPM: 10, // Hopeful higher limit
+    },
+    {
+        id: 'gemini-1.5-pro-001', // Fallback
+        name: 'Gemini 1.5 Pro',
+        provider: 'google',
+        tier: ModelTier.PRO,
+        costPer1KInputTokens: 0.125,
+        costPer1KOutputTokens: 0.375,
+        maxContextTokens: 2000000,
+        maxOutputTokens: 8192,
+        latencyP50Ms: 1000,
+        latencyP95Ms: 3000,
+        capabilities: [
+            TaskComplexity.SAFETY_CRITICAL,
+            TaskComplexity.CODE,
+        ],
+        qualityScores: {
+            [TaskComplexity.SAFETY_CRITICAL]: 0.95,
+            [TaskComplexity.CODE]: 0.90,
+        },
+        available: false, // Mark as false if it 404s
+        rateLimitRPM: 2,
+    }
 ];
 
 // ============================================================================
@@ -263,7 +249,7 @@ export class ModelRouter {
         }
 
         // Set default
-        this.defaultModel = defaultModelId || 'gemini-1.5-pro-001';
+        this.defaultModel = defaultModelId || 'gemini-2.5-flash-lite';
     }
 
     // ============================================================================

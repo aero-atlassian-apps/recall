@@ -15,21 +15,17 @@ services:
       dockerfile: Dockerfile.dev
     container_name: recall_app
     restart: unless-stopped
+    env_file:
+      - .env.local
     ports:
       - "3000:3000"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/recall_mvp
       - USE_MOCKS=false
+      - NEXT_PUBLIC_USE_MOCKS=false
       - NODE_ENV=development
       - DB_PROVIDER=postgres
-      # ===============================================
-      # FREE LLM: Google AI Studio (Gemini 1.5 Flash)
-      # 1,500 requests/day FREE - fastest option
-      # ===============================================
-      - LLM_PROVIDER=google_ai
-      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
-      # Fallback: HuggingFace (if no Google key)
-      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY:-}
+      # API keys will be loaded from .env.local via env_file below
       # ===============================================
       # FREE Speech: HuggingFace (Whisper STT + MMS TTS)
       # ===============================================
@@ -42,14 +38,16 @@ services:
       # ===============================================
       # Security (DEV ONLY - These are safe for local testing)
       # ===============================================
-      - JWT_SECRET=dev-secret-for-local-testing-only-32chars!
-      - NEXTAUTH_SECRET=dev_secret_key_123
+      - JWT_SECRET=${JWT_SECRET}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - NEXTAUTH_URL=http://localhost:3000
-      - CRON_SECRET=dev_cron_secret
+      - CRON_SECRET=${CRON_SECRET}
       # ===============================================
       # Observability (local dev = verbose logging)
       # ===============================================
       - LOG_LEVEL=debug
+      # Redis for session state (local Docker)
+      - REDIS_URL=redis://redis:6379
       # Metrics endpoint auth (optional for local, required for prod)
       # - METRICS_TOKEN=your-metrics-token
     volumes:
@@ -80,7 +78,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: recall_mvp
     volumes:
       - db_data:/var/lib/postgresql/data
@@ -101,7 +99,7 @@ services:
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@recall.dev
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
       - "5050:80"
@@ -120,9 +118,28 @@ services:
     networks:
       - recall_network
 
+  # Redis - Session State & Caching
+  redis:
+    image: redis:7-alpine
+    container_name: recall_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - recall_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    command: redis-server --appendonly yes
+
 networks:
   recall_network:
     driver: bridge
 
 volumes:
   db_data:
+  redis_data:

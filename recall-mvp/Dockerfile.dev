@@ -3,8 +3,9 @@
 # Development Dockerfile - Complete self-contained build
 FROM node:20-alpine
 
-# Install dependencies for native modules
-RUN apk add --no-cache python3 make g++
+# Install dependencies for native modules + FFmpeg for audio conversion
+# FFmpeg is required by AudioConverter service to convert WebM/Opus → WAV for STT APIs
+RUN apk add --no-cache python3 make g++ ffmpeg
 
 WORKDIR /app
 

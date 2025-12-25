@@ -17,6 +17,7 @@ import { ContextOptimizer } from './context/ContextOptimizer';
 import { PromptRegistry, createDefaultPromptRegistry } from './prompts/PromptRegistry';
 import { ToolRegistry } from './tools/ToolContracts'; // Import ToolRegistry
 import { JsonParser } from '../utils/JsonParser'; // Import JsonParser
+import { logger } from '../../../infrastructure/logging/LoggerService'; // Import LoggerService
 import {
     AgenticRunnerConfig,
     AgenticRunner,
@@ -946,7 +947,7 @@ Example: ["Retrieve memories about X", "Synthesize story", "Format as email"]
                 this.sessionContinuity.trackTopicDiscussion(goal);
 
             } catch (adaptError) {
-                console.error('[EnhancedReActAgent] Adaptation failed:', adaptError);
+                logger.error('[EnhancedReActAgent] Adaptation failed', { error: adaptError });
             }
         }
 
@@ -1071,14 +1072,14 @@ OUTPUT JSON:
      */
     interrupt(): void {
         // This would be implemented with a shared cancellation token
-        console.log('[EnhancedReActAgent] Interrupt requested');
+        logger.info('[EnhancedReActAgent] Interrupt requested');
     }
 
     /**
      * Halt the agent gracefully.
      */
     async halt(reason: HaltReason): Promise<void> {
-        console.log(`[EnhancedReActAgent] Halting: ${reason}`);
+        logger.warn(`[EnhancedReActAgent] Halting: ${reason}`, { reason });
         // In a real implementation, we would signal the state machine to transition to HALTED
     }
 
@@ -1113,7 +1114,11 @@ OUTPUT JSON:
         };
 
         const decision = this.modelRouter.route(complexity, budget);
-        console.log(`[Router] Route decided: ${decision.modelId} for ${complexity} (${decision.reason})`);
+        logger.info(`[Router] Route decided: ${decision.modelId} for ${complexity} (${decision.reason})`, {
+            model: decision.modelId,
+            complexity,
+            reason: decision.reason
+        });
 
         const result = await this.llm.generateText(prompt, {
             model: decision.modelId,

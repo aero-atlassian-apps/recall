@@ -2,8 +2,26 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  // Next.js 16 uses Turbopack by default - add empty config to silence warning
-  turbopack: {},
+  // Set turbopack root to silence multiple lockfile warning
+  turbopack: {
+    root: __dirname,
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.googleusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'i.pravatar.cc',
+      }
+    ],
+  },
   async headers() {
     return [
       {
@@ -27,7 +45,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=()', // Adjusted later per route if needed
+            value: 'camera=(self), microphone=(self), geolocation=()', // Allow camera/mic for conversation recording
           },
         ],
       },

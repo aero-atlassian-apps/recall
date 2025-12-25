@@ -13,24 +13,17 @@ export async function GET(
 
     let chapter: any;
     try {
-        const result = await db.select()
-            .from(chapters)
-            .where(eq(chapters.id, id))
-            .limit(1);
-        chapter = result[0];
+      const result = await db.select()
+        .from(chapters)
+        .where(eq(chapters.id, id))
+        .limit(1);
+      chapter = result[0];
     } catch (e) {
-        console.warn("DB select chapter detail failed");
-         if (id === 'mock-chapter-1') {
-            chapter = {
-                id: 'mock-chapter-1',
-                title: 'The Ford Plant',
-                content: '# The Ford Plant\n\nIn 1952...',
-                excerpt: 'In 1952, at eighteen years old...',
-                createdAt: new Date(),
-                metadata: { wordCount: 200 },
-                entities: [{type: 'topic', name: 'Ford'}]
-            };
-        }
+      console.error("DB select chapter detail failed:", e);
+      return NextResponse.json(
+        { error: 'Database error fetching chapter' },
+        { status: 500 }
+      );
     }
 
     if (!chapter) {

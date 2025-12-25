@@ -11,10 +11,11 @@ export class AudioPipeline {
     private isRecording = false;
     private isSpeaking = false;
 
-    // Chunk Management
-    private preRollBuffer: Blob[] = [];
+    // Audio buffer for current recording session
     private activeBuffer: Blob[] = [];
-    private readonly MAX_PREROLL_CHUNKS = 5; // ~500ms at 100ms chunks
+
+    // Minimum blob size to send (1KB) - prevents empty/tiny recordings
+    private readonly MIN_BLOB_SIZE_BYTES = 1000;
 
     // Event Callbacks
     public onVolumeChange: ((volume: number) => void) | null = null;
@@ -112,28 +113,45 @@ export class AudioPipeline {
 
         this.mediaRecorder = new MediaRecorder(this.destinationNode.stream, {
             mimeType,
-            audioBitsPerSecond: 24000
+            audioBitsPerSecond: 48000  // Higher bitrate for better quality
         });
 
+        // Collect ALL chunks for the current recording session
         this.mediaRecorder.ondataavailable = (e) => {
             if (e.data.size > 0) {
-                this.handleChunk(e.data);
+                this.activeBuffer.push(e.data);
             }
         };
 
-        this.mediaRecorder.start(100);
+        // When recording stops, we have a COMPLETE WebM file
+        this.mediaRecorder.onstop = () => {
+            if (this.activeBuffer.length > 0 && this.pendingSpeechEnd) {
+                // Create a single complete WebM blob from all chunks
+                const blob = new Blob(this.activeBuffer, { type: mimeType });
+                this.activeBuffer = [];
+
+                // BUG-003 FIX: Only send if blob is large enough (prevents empty/tiny recordings)
+                if (blob.size >= this.MIN_BLOB_SIZE_BYTES) {
+                    console.log("AudioPipeline: Complete WebM blob created:", blob.size, "bytes");
+                    if (this.onSpeechEnd) this.onSpeechEnd(blob);
+                } else {
+                    console.warn("AudioPipeline: Blob too small, discarding:", blob.size, "bytes");
+                }
+            }
+            this.pendingSpeechEnd = false;
+
+            // Restart recording for next segment (if still active)
+            if (this.isRecording && this.mediaRecorder && this.mediaRecorder.state === 'inactive') {
+                this.mediaRecorder.start();
+            }
+        };
+
+        // Start recording immediately (will be stopped on speech end)
+        this.mediaRecorder.start();
     }
 
-    private handleChunk(chunk: Blob) {
-        if (this.isSpeaking) {
-            this.activeBuffer.push(chunk);
-        } else {
-            this.preRollBuffer.push(chunk);
-            if (this.preRollBuffer.length > this.MAX_PREROLL_CHUNKS) {
-                this.preRollBuffer.shift();
-            }
-        }
-    }
+    // Flag to track pending speech end
+    private pendingSpeechEnd = false;
 
     private handleWorkletMessage(data: any) {
         switch (data.type) {
@@ -143,8 +161,11 @@ export class AudioPipeline {
             case 'SPEECH_START':
                 console.log("AudioPipeline: SPEECH_START");
                 this.isSpeaking = true;
-                this.activeBuffer = [...this.preRollBuffer];
-                this.preRollBuffer = [];
+                // Clear buffer and restart recording for fresh segment
+                this.activeBuffer = [];
+                if (this.mediaRecorder && this.mediaRecorder.state === 'inactive') {
+                    this.mediaRecorder.start();
+                }
                 if (this.onSpeechStart) this.onSpeechStart();
                 break;
             case 'SPEECH_END':
@@ -156,10 +177,11 @@ export class AudioPipeline {
     }
 
     private finalizeSegment() {
-        if (this.activeBuffer.length === 0) return;
-        const blob = new Blob(this.activeBuffer, { type: 'audio/webm; codecs=opus' });
-        this.activeBuffer = [];
-        if (this.onSpeechEnd) this.onSpeechEnd(blob);
+        // Stop recording to trigger onstop handler which creates complete WebM
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+            this.pendingSpeechEnd = true;
+            this.mediaRecorder.stop();
+        }
     }
 
     public async start() {
