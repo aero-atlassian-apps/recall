@@ -71,4 +71,19 @@ describe("API Job Worker", () => {
     expect(res.status).toBe(200);
     expect(jobRepository.updateStatus).toHaveBeenCalledWith("job-1", "failed", undefined, "Generation failed");
   });
+
+  it("should return generic 500 error on top-level failure", async () => {
+    const req = new NextRequest("http://localhost/api/cron/process-jobs", {
+      headers: { authorization: "Bearer secret" },
+    });
+
+    // Simulate top-level failure (e.g. DB connection)
+    (jobRepository.findPending as any).mockRejectedValue(new Error("DB Connection Failed"));
+
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.error).toBe("Internal Server Error");
+  });
 });
