@@ -7,7 +7,16 @@ export async function GET(
 ) {
     try {
         const { id } = await context.params;
-        // Verify user is asking for their own book or family member (Auth check skipped for now per MVP, assuming middleware or session check upstream)
+
+        // SECURITY: Verify user is authorized to access this resource
+        const authenticatedUserId = request.headers.get('x-user-id');
+
+        // Block IDOR: Only allow access if authenticated user matches requested ID
+        // TODO: Add family member check if needed in future
+        if (!authenticatedUserId || authenticatedUserId !== id) {
+            console.warn(`[Security] IDOR attempt blocked. User: ${authenticatedUserId}, Target: ${id}`);
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
 
         const pdfBuffer = await exportBookUseCase.execute(id);
 
