@@ -8,11 +8,11 @@ const userRepository = new DrizzleUserRepository();
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId'); // Requester ID
+    // SECURITY: Use trusted user ID from middleware header to prevent IDOR
+    const userId = req.headers.get('x-user-id');
 
     if (!userId) {
-      return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const chapter = await chapterRepository.findById(id);
